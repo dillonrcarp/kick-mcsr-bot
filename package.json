@@ -1,0 +1,17 @@
+﻿{
+  "name": "kick-mcsr-bot",
+  "version": "0.1.0",
+  "description": "Starter scaffold for a Kick chat bot using the MCSR Ranked API.",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

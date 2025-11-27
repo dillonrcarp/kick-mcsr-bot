@@ -1,0 +1,7 @@
+﻿{
+  "editor.formatOnSave": true,
+  "files.associations": {
+    ".env": "dotenv",
+    "*.env": "dotenv"
+  }
+}
