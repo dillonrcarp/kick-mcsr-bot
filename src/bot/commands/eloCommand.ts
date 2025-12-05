@@ -1,5 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getPlayerSummary } from '../../mcsr/api.js';
+import { getLinkedMcName } from '../../storage/linkStore.js';
 
 export class EloCommand implements ChatCommand {
   name = 'elo';
@@ -8,31 +9,68 @@ export class EloCommand implements ChatCommand {
   category = 'mcsr';
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
-    const targetInput = args?.[0]?.trim();
-    const fallback = ctx.channel?.trim() || ctx.username;
-    const target = (targetInput || fallback || ctx.username || '').trim();
-    if (!target) {
-      await ctx.reply('Please provide a player name.');
-      return;
-    }
-
     try {
-      const summary = await getPlayerSummary(target);
-      if (!summary) {
-        await ctx.reply(`Could not fetch MCSR stats for ${target}.`);
+      const resolved = await resolveTarget(ctx, args);
+      if (!resolved) {
+        await ctx.reply('No linked account found for this channel or user. Use !link <MinecraftUsername> to set yours.');
         return;
       }
-      const response = buildStatsMessage(summary);
+      const summary = resolved.summary ?? (await getPlayerSummary(resolved.name));
+      if (!summary) {
+        await ctx.reply(`Could not fetch MCSR stats for ${resolved.name}.`);
+        return;
+      }
+      const response = buildStatsMessage(summary, resolved.name);
       await ctx.reply(response);
     } catch (err) {
-      console.error('Failed to fetch MCSR stats for', target, err);
-      await ctx.reply(`Could not fetch MCSR stats for ${target}.`);
+      console.error('Failed to fetch MCSR stats for', ctx.username, err);
+      await ctx.reply('Could not fetch MCSR stats for this request.');
     }
   }
 }
 
-function buildStatsMessage(data: Record<string, any>): string {
-  const display = data.nickname || data.username || data.name || 'Player';
+interface ResolvedTarget {
+  name: string;
+  summary?: Record<string, any> | null;
+}
+
+async function resolveTarget(ctx: ChatCommandContext, args: string[]): Promise<ResolvedTarget | null> {
+  const channelOwner = (ctx.channel || '').trim();
+  const sender = (ctx.username || '').trim();
+  const arg = args?.[0]?.trim();
+  const wantsSelf = arg?.toLowerCase() === 'me';
+
+  // Explicit target other than "me"
+  if (arg && !wantsSelf) {
+    return { name: arg };
+  }
+
+  const ownerLinked = channelOwner ? getLinkedMcName(channelOwner) : undefined;
+  const senderLinked = sender ? getLinkedMcName(sender) : undefined;
+
+  // If owner linked and user asked for "me", honor sender instead.
+  if (wantsSelf) {
+    if (senderLinked) return { name: senderLinked };
+    if (sender) {
+      const summary = await getPlayerSummary(sender);
+      if (summary) return { name: sender, summary };
+    }
+    return null;
+  }
+
+  if (ownerLinked) return { name: ownerLinked };
+  if (senderLinked) return { name: senderLinked };
+
+  if (sender) {
+    const summary = await getPlayerSummary(sender);
+    if (summary) return { name: sender, summary };
+  }
+
+  return null;
+}
+
+function buildStatsMessage(data: Record<string, any>, fallbackName: string): string {
+  const display = data.nickname || data.username || data.name || fallbackName || 'Player';
   const rating = pickNumber(data.eloRate, data.elo, data.rating, data.rank_score, data.mmr);
   const peak = pickNumber(
     data.eloPeak,

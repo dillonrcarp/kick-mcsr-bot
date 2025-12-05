@@ -24,11 +24,14 @@ export class AverageCommand implements ChatCommand {
       const display = stats.player || target;
       const avgText = formatRaceTime(stats.averageMs);
       const pbText = formatRaceTime(stats.personalBestMs);
-      const parts = [`${display}: avg ${avgText}`, `pb ${pbText}`, `${stats.finishes} finishes`];
+      const parts: string[] = [];
+      parts.push(`Average: ${avgText}`);
+      parts.push(`PB: ${pbText}`);
+      parts.push(`Finishes ${stats.finishes}`);
       if (stats.ffr !== undefined) {
-        parts.push(`FFR ${Math.round(stats.ffr)}%`);
+        parts.push(`FF Rate ${stats.ffr.toFixed(2)}%`);
       }
-      await ctx.reply(parts.join(' | '));
+      await ctx.reply(`◆ ${display} ${parts.join(' • ')}`);
     } catch (err) {
       console.error('Failed to fetch average stats for', target, err);
       await ctx.reply(`Could not fetch average time for ${target}.`);
@@ -37,9 +40,10 @@ export class AverageCommand implements ChatCommand {
 }
 
 function formatRaceTime(ms: number): string {
+  if (!Number.isFinite(ms)) return 'N/A';
   const totalMs = Math.max(0, Math.floor(ms));
-  const minutes = Math.floor(totalMs / 60000);
-  const seconds = Math.floor((totalMs % 60000) / 1000);
-  const millis = totalMs % 1000;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
+  const totalSeconds = Math.floor(totalMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }

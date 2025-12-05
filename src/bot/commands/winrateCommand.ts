@@ -20,14 +20,24 @@ export class WinrateCommand implements ChatCommand {
         await ctx.reply(`No match history found for ${target}.`);
         return;
       }
-      const winrate = record.matches > 0 ? Math.round((record.wins / record.matches) * 100) : 0;
-      const parts = [`${target}: ${winrate}% WR`, `${record.wins}W ${record.losses}L`, `${record.matches} games`];
-      if (record.ffr !== undefined) {
-        const ffrPct = record.ffr;
-        const ffrText = ffrPct < 10 ? ffrPct.toFixed(1) : Math.round(ffrPct).toString();
-        parts.push(`FFR ${ffrText}%`);
+      const displayName = record.displayName || target;
+      const matches = Number.isFinite(record.matches) ? record.matches : record.wins + record.losses;
+      const winrate =
+        matches > 0 ? ((record.wins / matches) * 100).toFixed(1) : '0.0';
+      const ffrText =
+        record.ffr !== undefined && matches > 0 ? `${record.ffr.toFixed(2)}%` : null;
+
+      const segments: string[] = [];
+      segments.push(`Winrate: ${winrate}%`);
+      segments.push(`W/L: ${record.wins}/${record.losses}`);
+      if (Number.isFinite(matches)) {
+        segments.push(`Played ${matches} Matches`);
       }
-      await ctx.reply(parts.join(' | '));
+      if (ffrText) {
+        segments.push(`FF Rate ${ffrText}`);
+      }
+
+      await ctx.reply(`◆ ${displayName} ${segments.join(' • ')}`);
     } catch (err) {
       console.error('Failed to fetch winrate for', target, err);
       await ctx.reply(`Could not fetch winrate for ${target}.`);

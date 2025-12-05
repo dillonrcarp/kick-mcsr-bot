@@ -19,6 +19,8 @@ import { RecordCommand } from './commands/recordCommand.js';
 import { WinrateCommand } from './commands/winrateCommand.js';
 import { AverageCommand } from './commands/averageCommand.js';
 import { MCSRHelpCommand } from './commands/mcsrHelpCommand.js';
+import { LinkCommand } from './commands/linkCommand.js';
+import { UnlinkCommand } from './commands/unlinkCommand.js';
 
 interface PusherMessage {
   event?: string;
@@ -62,6 +64,8 @@ export class KickBot {
     this.commandRegistry.register(new RecordCommand());
     this.commandRegistry.register(new WinrateCommand());
     this.commandRegistry.register(new AverageCommand());
+    this.commandRegistry.register(new LinkCommand());
+    this.commandRegistry.register(new UnlinkCommand());
     this.commandRegistry.register(new MCSRHelpCommand(this.commandRegistry));
   }
 

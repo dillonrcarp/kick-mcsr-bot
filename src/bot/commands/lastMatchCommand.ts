@@ -1,5 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
-import { getLastMatch } from '../../mcsr/api.js';
+import { getLastMatch, getPlayerSummary } from '../../mcsr/api.js';
+import { getLinkedMcName } from '../../storage/linkStore.js';
 
 export class LastMatchCommand implements ChatCommand {
   name = 'lastmatch';
@@ -8,11 +9,25 @@ export class LastMatchCommand implements ChatCommand {
   category = 'mcsr';
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
-    const targetInput = args?.[0]?.trim();
-    const fallback = ctx.channel?.trim() || ctx.username;
-    const target = (targetInput || fallback || ctx.username || '').trim();
+    const arg = args?.[0]?.trim();
+    const wantsSelf = arg?.toLowerCase() === 'me';
+    const explicitTarget = arg && !wantsSelf ? arg : null;
+
+    let target: string | null = explicitTarget ?? null;
+    let reason: 'self' | 'channel' | undefined;
+
+    if (!explicitTarget) {
+      const resolved = await resolveTarget(ctx, wantsSelf);
+      target = resolved.name;
+      reason = resolved.reason;
+    }
+
     if (!target) {
-      await ctx.reply('Please provide a player name for last match info.');
+      if (reason === 'self') {
+        await ctx.reply('No linked account found for you. Use !link <MinecraftUsername> to set yours.');
+      } else {
+        await ctx.reply('No linked account found for this channel or user. Use !link <MinecraftUsername> to set yours.');
+      }
       return;
     }
 
@@ -50,10 +65,46 @@ export class LastMatchCommand implements ChatCommand {
 
       await ctx.reply(`${header}\n${bodyParts.join(' • ')}`);
     } catch (err) {
-      console.error('Failed to fetch last match data for', target, err);
+      console.error('Failed to fetch last match data for', target ?? ctx.username, err);
       await ctx.reply('Could not fetch last match data.');
     }
   }
+}
+
+interface ResolvedTarget {
+  name: string | null;
+  reason?: 'self' | 'channel';
+}
+
+async function resolveTarget(ctx: ChatCommandContext, wantsSelf: boolean): Promise<ResolvedTarget> {
+  const channelOwner = (ctx.channel || '').trim();
+  const sender = (ctx.username || '').trim();
+  const ownerLinked = channelOwner ? getLinkedMcName(channelOwner) : undefined;
+  const senderLinked = sender ? getLinkedMcName(sender) : undefined;
+
+  const validateSender = async (): Promise<string | null> => {
+    if (!sender) return null;
+    const summary = await getPlayerSummary(sender);
+    return summary ? sender : null;
+  };
+
+  if (wantsSelf) {
+    if (senderLinked) return { name: senderLinked };
+    const validated = await validateSender();
+    if (validated) return { name: validated };
+    return { name: null, reason: 'self' };
+  }
+
+  // No args: prefer channel owner link, then sender link, then sender validated.
+  if (!wantsSelf) {
+    if (ownerLinked) return { name: ownerLinked };
+    if (senderLinked) return { name: senderLinked };
+    const validated = await validateSender();
+    if (validated) return { name: validated };
+    return { name: null, reason: 'channel' };
+  }
+
+  return { name: null, reason: 'channel' };
 }
 
 function formatPlayerSegment(player: { name: string; rank?: number; eloBefore?: number; eloAfter?: number }): string {
@@ -81,8 +132,7 @@ function formatEloDelta(
 ): string {
   const format = (player: { name: string; eloBefore?: number; eloAfter?: number }): string => {
     const delta = computeDelta(player.eloBefore, player.eloAfter);
-    const after =
-      Number.isFinite(player.eloAfter) ? Number(player.eloAfter) : null;
+    const after = Number.isFinite(player.eloAfter) ? Number(player.eloAfter) : null;
 
     if (after !== null && delta !== null) {
       const deltaText = delta >= 0 ? `+${delta}` : `${delta}`;
@@ -102,16 +152,17 @@ function computeDelta(before?: number, after?: number): number | null {
   return Number(after) - Number(before);
 }
 
-function formatTimeAgo(timestamp: number): string {
+function formatTimeAgoVerbose(timestamp: number): string {
   const diffMs = Date.now() - timestamp;
-  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
-  if (diffMinutes < 60) return `${diffMinutes}m`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d`;
-  const diffWeeks = Math.floor(diffDays / 7);
-  return `${diffWeeks}w`;
+  const seconds = Math.max(0, Math.floor(diffMs / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d ${hours % 24}h`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+  return `${seconds}s`;
 }
 
 function samePlayer(a?: string, b?: string): boolean {
@@ -125,17 +176,4 @@ function formatDuration(ms?: number): string | null {
   const seconds = Math.floor((totalMs % 60000) / 1000);
   const millis = Math.floor(totalMs % 1000);
   return `${minutes}:${seconds.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
-}
-
-function formatTimeAgoVerbose(timestamp: number): string {
-  const diffMs = Date.now() - timestamp;
-  const seconds = Math.max(0, Math.floor(diffMs / 1000));
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (days > 0) return `${days}d ${hours % 24}h`;
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-  return `${seconds}s`;
 }

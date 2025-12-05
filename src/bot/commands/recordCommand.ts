@@ -28,16 +28,30 @@ export class RecordCommand implements ChatCommand {
         return;
       }
 
-      const { winsOne, winsTwo, totalMatches, draws, lastMatchAt } = stats;
-      const parts = [`${playerOne} vs ${playerTwo}: ${winsOne}:${winsTwo}`, `${totalMatches} total games played`];
+      const {
+        winsOne,
+        winsTwo,
+        totalMatches,
+        draws,
+        lastMatchAt,
+        playerOne: p1,
+        playerTwo: p2,
+        playerOneName,
+        playerTwoName,
+      } = stats;
+      const displayOne = playerOneName || p1;
+      const displayTwo = playerTwoName || p2;
+      const segments: string[] = [];
+      segments.push(`${displayOne} vs ${displayTwo}: ${winsOne}:${winsTwo}`);
+      segments.push(`Played ${totalMatches} Matches`);
       if (draws && draws > 0) {
-        parts.push(`${draws} draws`);
+        segments.push(`${draws} draws`);
       }
       if (lastMatchAt) {
-        parts.push(`last played ${formatTimeAgo(lastMatchAt)} ago`);
+        segments.push(`Last played ${formatTimeAgo(lastMatchAt)} ago`);
       }
 
-      await ctx.reply(parts.join(' | '));
+      await ctx.reply(`◆ ${segments.join(' • ')}`);
     } catch (err) {
       console.error('Failed to fetch head-to-head record for', playerOne, playerTwo, err);
       await ctx.reply('Could not fetch head-to-head record.');

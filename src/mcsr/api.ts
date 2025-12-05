@@ -214,13 +214,15 @@ function numberOrUndefined(value: unknown): number | undefined {
   return Number.isFinite(num) ? Number(num) : undefined;
 }
 
-function parseHeadToHeadPayload(payload: any): HeadToHeadStats | null {
+function parseHeadToHeadPayload(payload: any, fallbackOne?: string, fallbackTwo?: string): HeadToHeadStats | null {
   if (!payload) return null;
 
   let winsOne = 0;
   let winsTwo = 0;
   let draws = 0;
   let lastMatchAt: number | undefined;
+  let displayOne = fallbackOne;
+  let displayTwo = fallbackTwo;
 
   const history = Array.isArray(payload.matches) ? payload.matches : Array.isArray(payload) ? payload : [];
   if (history.length > 0) {
@@ -233,6 +235,25 @@ function parseHeadToHeadPayload(payload: any): HeadToHeadStats | null {
       } else {
         draws += 1;
       }
+      const nameA =
+        match.player_a?.player_name ??
+        match.player_a?.name ??
+        match.playerA?.player_name ??
+        match.playerA?.name ??
+        match.player1 ??
+        match.player_one ??
+        match.playerOne;
+      const nameB =
+        match.player_b?.player_name ??
+        match.player_b?.name ??
+        match.playerB?.player_name ??
+        match.playerB?.name ??
+        match.player2 ??
+        match.player_two ??
+        match.playerTwo;
+      if (!displayOne && nameA) displayOne = String(nameA);
+      if (!displayTwo && nameB) displayTwo = String(nameB);
+
       const ts = numberOrUndefined(match.timestamp ?? match.played_at);
       if (ts) {
         lastMatchAt = lastMatchAt ? Math.max(lastMatchAt, ts) : ts;
@@ -243,6 +264,22 @@ function parseHeadToHeadPayload(payload: any): HeadToHeadStats | null {
     winsTwo = numberOrUndefined(payload.wins_p2 ?? payload.player2_wins) ?? 0;
     draws = numberOrUndefined(payload.draws) ?? 0;
     lastMatchAt = numberOrUndefined(payload.last_match_timestamp ?? payload.lastMatchTimestamp);
+    displayOne =
+      payload.player1_name ??
+      payload.player_one_name ??
+      payload.playerOneName ??
+      payload.player1 ??
+      payload.player_one ??
+      payload.playerOne ??
+      displayOne;
+    displayTwo =
+      payload.player2_name ??
+      payload.player_two_name ??
+      payload.playerTwoName ??
+      payload.player2 ??
+      payload.player_two ??
+      payload.playerTwo ??
+      displayTwo;
   }
 
   const totalMatches =
@@ -254,8 +291,10 @@ function parseHeadToHeadPayload(payload: any): HeadToHeadStats | null {
   }
 
   return {
-    playerOne: '',
-    playerTwo: '',
+    playerOne: fallbackOne ?? '',
+    playerTwo: fallbackTwo ?? '',
+    playerOneName: displayOne,
+    playerTwoName: displayTwo,
     winsOne,
     winsTwo,
     draws,
@@ -267,6 +306,8 @@ function parseHeadToHeadPayload(payload: any): HeadToHeadStats | null {
 export interface HeadToHeadStats {
   playerOne: string;
   playerTwo: string;
+  playerOneName?: string;
+  playerTwoName?: string;
   winsOne: number;
   winsTwo: number;
   draws: number;
@@ -278,11 +319,19 @@ export async function getHeadToHead(playerOne: string, playerTwo: string): Promi
   if (!playerOne || !playerTwo) return null;
   const p1 = playerOne.trim();
   const p2 = playerTwo.trim();
+
+  // Preferred: use the documented versus endpoints first.
+  const versusMatches = await computeHeadToHeadFromVersusMatches(p1, p2);
+  if (versusMatches) return versusMatches;
+
+  const versusStats = await fetchVersusStats(p1, p2);
+  if (versusStats) return versusStats;
+
   const url = `${apiBase()}/matches/head-to-head?player1=${encodeURIComponent(p1)}&player2=${encodeURIComponent(p2)}`;
   try {
     const { data } = await axios.get(url, { timeout: 8000 });
     const payload = data?.data ?? data;
-    const parsed = parseHeadToHeadPayload(payload);
+    const parsed = parseHeadToHeadPayload(payload, p1, p2);
     if (parsed) {
       return {
         ...parsed,
@@ -301,11 +350,113 @@ export async function getHeadToHead(playerOne: string, playerTwo: string): Promi
   return await computeHeadToHeadFromMatches(p1, p2);
 }
 
-async function computeHeadToHeadFromMatches(playerOne: string, playerTwo: string, limit = 100): Promise<HeadToHeadStats | null> {
-  // Use the per-user matches endpoint to ensure we only consider games involving playerOne,
-  // then filter for games where playerTwo is also present.
-  const matches = await fetchUserMatches(playerOne, limit);
-  if (!matches.length) return null;
+async function computeHeadToHeadFromVersusMatches(playerOne: string, playerTwo: string, count = 100): Promise<HeadToHeadStats | null> {
+  const url = `${apiBase()}/users/${encodeURIComponent(playerOne)}/versus/${encodeURIComponent(playerTwo)}/matches?count=${count}`;
+  try {
+    const { data } = await axios.get(url, { timeout: 8000 });
+    const payload = data?.data ?? data;
+    const history: any[] = Array.isArray(payload) ? payload : [];
+    if (!history.length) return null;
+
+    const aNorm = normalizeName(playerOne);
+    const bNorm = normalizeName(playerTwo);
+    let winsOne = 0;
+    let winsTwo = 0;
+    let draws = 0;
+    let lastMatchAt: number | undefined;
+    let displayOne: string | undefined;
+    let displayTwo: string | undefined;
+
+    for (const match of history) {
+      const players: any[] = Array.isArray(match.players) ? match.players : [];
+      const pA = players.find((p) => normalizeName(p?.nickname || p?.name || p?.username) === aNorm);
+      const pB = players.find((p) => normalizeName(p?.nickname || p?.name || p?.username) === bNorm);
+      if (!pA || !pB) continue;
+      if (!displayOne && (pA.nickname || pA.name || pA.username)) displayOne = pA.nickname || pA.name || pA.username;
+      if (!displayTwo && (pB.nickname || pB.name || pB.username)) displayTwo = pB.nickname || pB.name || pB.username;
+
+      const winnerUuid = match.result?.uuid ? String(match.result.uuid) : null;
+      if (winnerUuid && pA.uuid && String(pA.uuid) === winnerUuid) winsOne += 1;
+      else if (winnerUuid && pB.uuid && String(pB.uuid) === winnerUuid) winsTwo += 1;
+      else draws += 1;
+
+      const ts = numberOrUndefined(match.date ?? match.timestamp ?? match.played_at);
+      if (ts) {
+        const ms = ts < 1e12 ? ts * 1000 : ts;
+        lastMatchAt = lastMatchAt ? Math.max(lastMatchAt, ms) : ms;
+      }
+    }
+
+    const totalMatches = winsOne + winsTwo + draws;
+    if (totalMatches === 0) return null;
+
+    return {
+      playerOne,
+      playerTwo,
+      playerOneName: displayOne ?? playerOne,
+      playerTwoName: displayTwo ?? playerTwo,
+      winsOne,
+      winsTwo,
+      draws,
+      totalMatches,
+      lastMatchAt,
+    };
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404 || status === 400) return null;
+    throw err;
+  }
+}
+
+async function fetchVersusStats(playerOne: string, playerTwo: string): Promise<HeadToHeadStats | null> {
+  const url = `${apiBase()}/users/${encodeURIComponent(playerOne)}/versus/${encodeURIComponent(playerTwo)}`;
+  try {
+    const { data } = await axios.get(url, { timeout: 8000 });
+    const payload = data?.data ?? data;
+    const players: any[] = Array.isArray(payload?.players) ? payload.players : [];
+    const aNorm = normalizeName(playerOne);
+    const bNorm = normalizeName(playerTwo);
+    const pA = players.find((p) => normalizeName(p?.nickname || p?.name || p?.username || p?.uuid) === aNorm);
+    const pB = players.find((p) => normalizeName(p?.nickname || p?.name || p?.username || p?.uuid) === bNorm);
+    const rankedResults = payload?.results?.ranked ?? payload?.results ?? {};
+    const winsOne = numberOrUndefined(pA ? rankedResults?.[pA.uuid] : undefined) ?? 0;
+    const winsTwo = numberOrUndefined(pB ? rankedResults?.[pB.uuid] : undefined) ?? 0;
+    const totalMatches = numberOrUndefined(rankedResults?.total) ?? winsOne + winsTwo;
+    if (totalMatches === 0) return null;
+    return {
+      playerOne,
+      playerTwo,
+      playerOneName: pA?.nickname || pA?.name || pA?.username || playerOne,
+      playerTwoName: pB?.nickname || pB?.name || pB?.username || playerTwo,
+      winsOne,
+      winsTwo,
+      draws: 0,
+      totalMatches,
+    };
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404 || status === 400) return null;
+    throw err;
+  }
+}
+
+async function computeHeadToHeadFromMatches(playerOne: string, playerTwo: string, limit = 300): Promise<HeadToHeadStats | null> {
+  // Pull matches for both players, dedupe, then filter for games involving both.
+  const matchesOne = await fetchUserMatches(playerOne, limit);
+  const matchesTwo = await fetchUserMatches(playerTwo, limit);
+  const combined: any[] = [];
+  const seen = new Set<string>();
+
+  for (const match of [...matchesOne, ...matchesTwo]) {
+    const key = buildMatchKey(match);
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    combined.push(match);
+  }
+
+  if (!combined.length) return null;
 
   const a = normalizeName(playerOne);
   const b = normalizeName(playerTwo);
@@ -313,24 +464,31 @@ async function computeHeadToHeadFromMatches(playerOne: string, playerTwo: string
   let winsTwo = 0;
   let draws = 0;
   let lastMatchAt: number | undefined;
+  let displayOne: string | undefined;
+  let displayTwo: string | undefined;
 
-  for (const match of matches) {
+  for (const match of combined) {
     const players: any[] = Array.isArray(match.players) ? match.players : [];
     if (players.length < 2) continue;
 
     const mapped = players.map((p) => ({
       raw: p,
       name: normalizeName(p.nickname || p.name || p.username),
+      display: p.nickname || p.name || p.username,
     }));
     const hasA = mapped.some((p) => p.name === a);
     const hasB = mapped.some((p) => p.name === b);
     if (!hasA || !hasB) continue;
 
     const winnerUuid = match.result?.uuid ? String(match.result.uuid) : null;
-    const pA = mapped.find((p) => p.name === a)?.raw;
-    const pB = mapped.find((p) => p.name === b)?.raw;
-    if (winnerUuid && pA?.uuid && String(pA.uuid) === winnerUuid) winsOne += 1;
-    else if (winnerUuid && pB?.uuid && String(pB.uuid) === winnerUuid) winsTwo += 1;
+    const pA = mapped.find((p) => p.name === a);
+    const pB = mapped.find((p) => p.name === b);
+    if (!displayOne && pA?.display) displayOne = String(pA.display);
+    if (!displayTwo && pB?.display) displayTwo = String(pB.display);
+    const pARaw = pA?.raw;
+    const pBRaw = pB?.raw;
+    if (winnerUuid && pARaw?.uuid && String(pARaw.uuid) === winnerUuid) winsOne += 1;
+    else if (winnerUuid && pBRaw?.uuid && String(pBRaw.uuid) === winnerUuid) winsTwo += 1;
     else draws += 1;
 
     const ts = numberOrUndefined(match.date ?? match.timestamp ?? match.played_at);
@@ -346,6 +504,8 @@ async function computeHeadToHeadFromMatches(playerOne: string, playerTwo: string
   return {
     playerOne,
     playerTwo,
+    playerOneName: displayOne ?? playerOne,
+    playerTwoName: displayTwo ?? playerTwo,
     winsOne,
     winsTwo,
     draws,
@@ -357,14 +517,43 @@ async function computeHeadToHeadFromMatches(playerOne: string, playerTwo: string
 async function fetchUserMatches(player: string, limit = 200): Promise<any[]> {
   const slug = player.trim();
   if (!slug) return [];
-  const url = `${apiBase()}/users/${encodeURIComponent(slug)}/matches?limit=${limit}`;
-  const { data } = await axios.get(url, { timeout: 8000 });
-  const payload = data?.data ?? data;
-  return Array.isArray(payload) ? payload : [];
+
+  const collected: any[] = [];
+  const pageSize = 20;
+  let offset = 0;
+
+  while (collected.length < limit) {
+    const url = `${apiBase()}/users/${encodeURIComponent(slug)}/matches?limit=${pageSize}&offset=${offset}`;
+    const { data } = await axios.get(url, { timeout: 8000 });
+    const payload = data?.data ?? data;
+    const page = Array.isArray(payload) ? payload : [];
+    if (!page.length) break;
+    collected.push(...page);
+    if (page.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return collected.slice(0, limit);
 }
 
 function normalizeName(name: unknown): string {
   return String(name || '').trim().toLowerCase();
+}
+
+function buildMatchKey(match: any): string | null {
+  if (!match || typeof match !== 'object') return null;
+  const byId = match.id ?? match.match_id ?? match.matchId ?? match.uuid;
+  if (byId !== undefined && byId !== null) return `id:${String(byId)}`;
+  const ts = match.date ?? match.timestamp ?? match.played_at;
+  const tsPart = ts !== undefined && ts !== null ? String(ts) : '';
+  const players = Array.isArray(match.players)
+    ? match.players
+        .map((p: any) => normalizeName(p?.nickname || p?.name || p?.username || p?.uuid))
+        .sort()
+        .join(',')
+    : '';
+  const seed = `${tsPart}|${players}`;
+  return seed ? `seed:${seed}` : null;
 }
 
 function matchIncludesPlayer(match: any, target: string): boolean {
@@ -388,6 +577,7 @@ export interface PlayerRecord {
   losses: number;
   matches: number;
   ffr?: number;
+  displayName?: string;
 }
 
 export async function getPlayerRecord(username: string): Promise<PlayerRecord | null> {
@@ -403,6 +593,7 @@ export async function getPlayerRecord(username: string): Promise<PlayerRecord | 
       payload.statistics?.total ||
       payload.statistics ||
       {};
+    const displayName = payload.nickname || payload.username || payload.name || slug;
     const wins = numberOrUndefined(statsRoot?.wins?.ranked ?? statsRoot?.wins ?? statsRoot?.totalWins) ?? 0;
     const losses =
       numberOrUndefined(
@@ -426,6 +617,7 @@ export async function getPlayerRecord(username: string): Promise<PlayerRecord | 
       losses,
       matches,
       ffr,
+      displayName,
     };
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status;
@@ -441,6 +633,7 @@ export interface PlayerAverage {
   averageMs: number;
   personalBestMs: number;
   finishes: number;
+  forfeits?: number;
   ffr?: number;
 }
 
@@ -452,7 +645,11 @@ export async function getPlayerAverage(username: string): Promise<PlayerAverage 
     const { data } = await axios.get(url, { timeout: 8000 });
     const payload = data?.data ?? data;
     if (!payload || typeof payload !== 'object') return null;
-    const statsRoot = payload.statistics?.total || payload.statistics || {};
+    const statsRoot =
+      payload.statistics?.season ||
+      payload.statistics?.total ||
+      payload.statistics ||
+      {};
     const completionAggregate = numberOrUndefined(
       statsRoot?.completionTime?.ranked ??
         statsRoot?.completionTime ??
@@ -509,6 +706,7 @@ export async function getPlayerAverage(username: string): Promise<PlayerAverage 
       averageMs,
       personalBestMs,
       finishes: completions,
+      forfeits,
       ffr,
     };
   } catch (err) {
