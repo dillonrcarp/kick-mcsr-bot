@@ -27,7 +27,7 @@ export class MCSRHelpCommand implements ChatCommand {
           (command.aliases || []).some((alias) => alias.toLowerCase() === target),
       );
       if (!match) {
-        await ctx.reply(`Unknown command "${target}". Use +mcsrhelp to list available commands.`);
+        await ctx.reply(`Unknown command "${target}". Use !mcsrhelp to list available commands.`);
         return;
       }
       await ctx.reply(formatCommandDetails(match));
@@ -42,19 +42,19 @@ export class MCSRHelpCommand implements ChatCommand {
 function formatCommandSummary(command: ChatCommand): string {
   const aliasText =
     command.aliases && command.aliases.length > 0
-      ? ` aliases: ${command.aliases.map((alias) => `+${alias}`).join(', ')}`
+      ? ` aliases: ${command.aliases.map((alias) => `!${alias}`).join(', ')}`
       : '';
   const description = command.description ?? 'No description provided.';
-  return `  +${command.name}${aliasText} - ${description}`;
+  return `◆ !${command.name}${aliasText} • ${description}`;
 }
 
 function formatCommandDetails(command: ChatCommand): string {
   const aliases =
-    command.aliases && command.aliases.length > 0 ? command.aliases.map((alias) => `+${alias}`).join(', ') : 'None';
+    command.aliases && command.aliases.length > 0 ? command.aliases.map((alias) => `!${alias}`).join(', ') : 'None';
   return [
-    `Command: +${command.name}`,
-    `Aliases: ${aliases}`,
-    `Description: ${command.description ?? 'No description provided.'}`,
+    `◆ Command: !${command.name}`,
+    `◆ Aliases: ${aliases}`,
+    `◆ Description: ${command.description ?? 'No description provided.'}`,
   ].join('\n');
 }
 

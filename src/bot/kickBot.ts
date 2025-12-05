@@ -13,7 +13,6 @@ import {
 import { CommandRegistry } from './commands/commandRegistry.js';
 import { PingCommand } from './commands/pingCommand.js';
 import { EloCommand } from './commands/eloCommand.js';
-import { RaceCommand } from './commands/raceCommand.js';
 import { LastMatchCommand } from './commands/lastMatchCommand.js';
 import { RecordCommand } from './commands/recordCommand.js';
 import { WinrateCommand } from './commands/winrateCommand.js';
@@ -59,7 +58,6 @@ export class KickBot {
     this.commandRegistry = new CommandRegistry();
     this.commandRegistry.register(new PingCommand());
     this.commandRegistry.register(new EloCommand());
-    this.commandRegistry.register(new RaceCommand());
     this.commandRegistry.register(new LastMatchCommand());
     this.commandRegistry.register(new RecordCommand());
     this.commandRegistry.register(new WinrateCommand());
