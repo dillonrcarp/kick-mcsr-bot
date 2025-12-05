@@ -108,28 +108,23 @@ export interface PlayerMatchStats {
 export async function getLastMatch(username: string): Promise<LastMatchEntry | null> {
   if (!username) return null;
   const slug = username.trim();
-  const perUserUrl = `${apiBase()}/users/${encodeURIComponent(slug)}/matches?limit=3`;
+  const perUserUrl = `${apiBase()}/users/${encodeURIComponent(slug)}/matches?limit=5`;
   try {
     const { data } = await axios.get(perUserUrl, { timeout: 8000 });
     const payload = data?.data ?? data;
     if (!Array.isArray(payload) || payload.length === 0) return null;
-    const match = payload[0];
-    if (!match) return null;
 
-    const normalized = normalizeMatchPayload(match, slug);
-    if (normalized && hasMeaningfulPlayers(normalized)) {
-      return normalized;
+    const perUserMatches = payload;
+    let normalized = pickNormalizedMatch(perUserMatches, slug);
+    if (normalized) return normalized;
+
+    const fallbackMatches = await fetchLegacyMatches(slug, 5);
+    if (fallbackMatches.length > 0) {
+      normalized = pickNormalizedMatch([...perUserMatches, ...fallbackMatches], slug);
+      if (normalized) return normalized;
     }
 
-    const legacyMatch = await fetchLegacyMatch(slug);
-    if (legacyMatch) {
-      const fallback = normalizeMatchPayload(legacyMatch, slug);
-      if (fallback && hasMeaningfulPlayers(fallback)) {
-        return fallback;
-      }
-    }
-
-    return normalized;
+    return null;
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status;
     if (status === 404) {
@@ -139,66 +134,11 @@ export async function getLastMatch(username: string): Promise<LastMatchEntry | n
   }
 }
 
-function hasMeaningfulPlayers(entry: LastMatchEntry | null): entry is LastMatchEntry {
-  if (!entry || !entry.playerA || !entry.playerB) return false;
-  const hasName = (player: PlayerMatchStats | undefined): boolean =>
-    Boolean(player && player.name && player.name !== 'Unknown');
-  return hasName(entry.playerA) && hasName(entry.playerB);
-}
-
 function normalizeMatchPayload(match: any, slug: string): LastMatchEntry | null {
   if (!match) return null;
 
-  if (Array.isArray(match.players) && match.players.length >= 2) {
-    const changeMap = new Map<string, { after?: number; delta?: number }>();
-    if (Array.isArray(match.changes)) {
-      for (const entry of match.changes) {
-        const uuid = entry?.uuid;
-        if (!uuid) continue;
-        const after = numberOrUndefined(entry.eloRate ?? entry.elo);
-        const delta = numberOrUndefined(entry.change ?? entry.delta);
-        changeMap.set(String(uuid), { after, delta });
-      }
-    }
-
-    const normalize = (player: any): PlayerMatchStats => {
-      const uuid = player?.uuid ? String(player.uuid) : undefined;
-      const change = uuid ? changeMap.get(uuid) : undefined;
-      const after = change?.after ?? numberOrUndefined(player.eloRate ?? player.elo_rate);
-      const delta = change?.delta;
-      const before =
-        Number.isFinite(after) && Number.isFinite(delta) ? Number(after) - Number(delta) : undefined;
-      return {
-        name: player?.nickname || player?.name || player?.username || slug,
-        rank: numberOrUndefined(player?.eloRank ?? player?.rank ?? player?.player_rank),
-        eloBefore: before,
-        eloAfter: after,
-      };
-    };
-
-    const [p1, p2] = match.players;
-    const playerA = normalize(p1);
-    const playerB = normalize(p2);
-
-    const winnerUuid = match.result?.uuid ? String(match.result.uuid) : null;
-    let winner: 'A' | 'B' | null = null;
-    if (winnerUuid) {
-      if (p1?.uuid && String(p1.uuid) === winnerUuid) winner = 'A';
-      else if (p2?.uuid && String(p2.uuid) === winnerUuid) winner = 'B';
-    }
-
-    const ts = numberOrUndefined(match.date ?? match.timestamp ?? match.played_at) ?? Date.now();
-    const playedAt = ts < 1e12 ? ts * 1000 : ts;
-
-    return {
-      playedAt,
-      seedType: match.seedType || match.seed_type || match.seed?.overworld || match.seed?.id,
-      playerA,
-      playerB,
-      winner,
-      matchNumber: numberOrUndefined(match.match_number ?? match.id),
-      durationMs: numberOrUndefined(match.result?.time ?? match.duration ?? match.time),
-    };
+  if (Array.isArray(match.players) && match.players.length > 0) {
+    return normalizePlayersMatch(match, slug);
   }
 
   const playerA = normalizeLegacyMatchPlayer(match, 'A', slug);
@@ -214,20 +154,161 @@ function normalizeMatchPayload(match: any, slug: string): LastMatchEntry | null 
   };
 }
 
-async function fetchLegacyMatch(username: string): Promise<any | null> {
-  const url = `${apiBase()}/matches?player=${encodeURIComponent(username)}&limit=1`;
+interface NormalizedPlayerEntry {
+  stats: PlayerMatchStats;
+  uuid?: string;
+  raw?: any;
+}
+
+function normalizePlayersMatch(match: any, slug: string): LastMatchEntry {
+  const changeMap = new Map<string, { after?: number; delta?: number }>();
+  if (Array.isArray(match.changes)) {
+    for (const entry of match.changes) {
+      const uuid = entry?.uuid;
+      if (!uuid) continue;
+      const after = numberOrUndefined(entry.eloRate ?? entry.elo);
+      const delta = numberOrUndefined(entry.change ?? entry.delta);
+      changeMap.set(String(uuid), { after, delta });
+    }
+  }
+
+  const normalizedPlayers: NormalizedPlayerEntry[] = match.players.map((player: any) => {
+    const uuid = player?.uuid ? String(player.uuid) : undefined;
+    const change = uuid ? changeMap.get(uuid) : undefined;
+    const after =
+      change?.after ??
+      numberOrUndefined(player.eloRate ?? player.elo_rate ?? player.elo ?? player.eloRateAfter);
+    const delta =
+      change?.delta ??
+      numberOrUndefined(player.change ?? player.delta ?? player.elo_change ?? player.eloChange);
+    const before =
+      Number.isFinite(after) && Number.isFinite(delta) ? Number(after) - Number(delta) : undefined;
+
+    return {
+      stats: {
+        name: pickString(player?.nickname, player?.name, player?.username, player?.id) ?? 'Unknown',
+        rank: numberOrUndefined(player?.eloRank ?? player?.rank ?? player?.player_rank),
+        eloBefore: before,
+        eloAfter: after,
+      },
+      uuid,
+      raw: player,
+    };
+  });
+
+  let playerAEntry = pickPlayerEntry(normalizedPlayers, slug);
+  if (!playerAEntry) {
+    playerAEntry = { stats: normalizeLegacyMatchPlayer(match, 'A', slug) };
+  }
+
+  let playerBEntry =
+    normalizedPlayers.find((entry) => entry !== playerAEntry) ??
+    ({ stats: normalizeLegacyMatchPlayer(match, 'B') } as NormalizedPlayerEntry);
+
+  if (!playerBEntry.stats || playerBEntry.stats.name === 'Unknown') {
+    playerBEntry = { stats: normalizeLegacyMatchPlayer(match, 'B') };
+  }
+
+  const ts = numberOrUndefined(match.date ?? match.timestamp ?? match.played_at) ?? Date.now();
+  const playedAt = ts < 1e12 ? ts * 1000 : ts;
+  const durationMs = numberOrUndefined(match.result?.time ?? match.duration ?? match.time);
+  const winnerUuid = match.result?.uuid ? String(match.result.uuid) : null;
+  let winner: 'A' | 'B' | null = null;
+  if (winnerUuid) {
+    if (playerAEntry.uuid && playerAEntry.uuid === winnerUuid) winner = 'A';
+    else if (playerBEntry.uuid && playerBEntry.uuid === winnerUuid) winner = 'B';
+  }
+
+  return {
+    playedAt,
+    seedType: match.seedType || match.seed_type || match.seed?.overworld || match.seed?.id,
+    playerA: playerAEntry.stats,
+    playerB: playerBEntry.stats,
+    winner,
+    matchNumber: numberOrUndefined(match.match_number ?? match.id),
+    durationMs,
+  };
+}
+
+function pickPlayerEntry(entries: NormalizedPlayerEntry[], slug: string): NormalizedPlayerEntry | undefined {
+  if (!entries.length) return undefined;
+  if (!slug) return entries[0];
+  const slugLower = slug.trim().toLowerCase();
+  const direct = entries.find((entry) => samePlayer(entry.stats.name, slugLower));
+  if (direct) return direct;
+
+  return entries.find((entry) => {
+    const candidates = [
+      entry.raw?.nickname,
+      entry.raw?.name,
+      entry.raw?.username,
+      entry.raw?.id,
+      entry.uuid,
+    ];
+    return candidates.some((value) => samePlayer(value, slugLower));
+  });
+}
+
+function samePlayer(value: unknown, target: string): boolean {
+  if (!value) return false;
+  return String(value).trim().toLowerCase() === target;
+}
+
+function pickNormalizedMatch(matches: any[], slug: string): LastMatchEntry | null {
+  if (!Array.isArray(matches) || matches.length === 0) return null;
+  const sorted = [...matches].sort((a, b) => getMatchTimestamp(b) - getMatchTimestamp(a));
+  let fallbackWithOpponent: LastMatchEntry | null = null;
+  let fallbackAny: LastMatchEntry | null = null;
+
+  for (const raw of sorted) {
+    const normalized = normalizeMatchPayload(raw, slug);
+    if (!normalized) continue;
+    const opponentName = normalized.playerB?.name?.trim();
+    const hasOpponent = Boolean(opponentName && opponentName.toLowerCase() !== 'unknown');
+    if (hasOpponent && !isRankedBotName(opponentName)) {
+      return normalized;
+    }
+    if (hasOpponent && !fallbackWithOpponent) {
+      fallbackWithOpponent = normalized;
+    }
+    if (!fallbackAny) {
+      fallbackAny = normalized;
+    }
+  }
+
+  return fallbackWithOpponent ?? fallbackAny;
+}
+
+async function fetchLegacyMatches(username: string, limit = 5): Promise<any[]> {
+  if (!username) return [];
+  const url = `${apiBase()}/matches?player=${encodeURIComponent(username)}&limit=${Math.max(1, limit)}`;
   try {
     const { data } = await axios.get(url, { timeout: 8000 });
     const payload = data?.data ?? data;
-    if (!Array.isArray(payload) || payload.length === 0) return null;
-    return payload[0];
+    return Array.isArray(payload) ? payload : [];
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status;
     if (status === 404) {
-      return null;
+      return [];
     }
     throw err;
   }
+}
+
+function getMatchTimestamp(match: any): number {
+  const raw =
+    numberOrUndefined(match?.date) ??
+    numberOrUndefined(match?.timestamp) ??
+    numberOrUndefined(match?.played_at) ??
+    numberOrUndefined(match?.createdAt) ??
+    numberOrUndefined(match?.time);
+  if (!raw) return 0;
+  return raw < 1e12 ? raw * 1000 : raw;
+}
+
+function isRankedBotName(name?: string | null): boolean {
+  if (!name) return false;
+  return name.trim().toLowerCase().includes('ranked bot');
 }
 
 function normalizeMatchPlayer(data: Record<string, any>, fallbackName?: string): PlayerMatchStats {
