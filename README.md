@@ -1,50 +1,29 @@
-# Kick MCSR Bot
+# kick-mcsr-bot
 
-## Overview
-Node.js Kick chat bot scaffold that connects via WebSocket, responds to chat commands, and will pull data from the MCSR Ranked API. Phase 1 is implemented: the bot joins a channel and replies `Pong!` to `!ping`.
+Kick chat bot with pluggable commands for MCSR Ranked stats.
 
-## Installation
-1. Install Node.js (v18+ recommended).
-2. Clone or copy this repository.
-3. Run `npm install` inside `kick-mcsr-bot` to install dependencies.
-4. Copy `.env.example` to `.env` and fill in your credentials:
-   - `KICK_TOKEN`: Bot account token (Bearer token from Kick).
-   - `KICK_CHANNEL`: Channel name to join (e.g., `trainwreckstv`).
-   - `KICK_BOT_USERNAME`: Your bot's username (used to ignore its own messages).
-   - `MCSR_API_BASE`: Base URL for the MCSR Ranked API (not used in Phase 1 yet).
-   - `KICK_PUSHER_CLUSTER`: Optional Pusher cluster override (defaults to trying `us3,us2,us1,mt1,eu1,eu2,ap1,sa1` in order).
-   - `KICK_PUSHER_KEY`: Optional Pusher app key override (defaults to the known public key).
-   - `KICK_PUSHER_HOST`: Optional full Pusher host override (e.g., `wss://ws-us3.pusher.com` or a host seen in browser devtools).
-   - `KICK_XSRF_TOKEN`: Value from your browser `XSRF-TOKEN` cookie (decoded).
-   - `KICK_SESSION_COOKIE`: Value from your browser `kick_session` cookie (if present).
-   - `KICK_EXTRA_COOKIES`: Optional extra cookies to append (raw `k=v; k2=v2` string) if Kick requires more session context.
+## Setup
 
-## Running the bot
-- Development: `npm start`
-- Debugging in VS Code: use the provided "Run Kick Bot" launch config (loads `.env`).
+1. Copy `.env.example` to `.env` and fill in your Kick token, username, and channel.
+   - To handle multiple channels, set `KICK_CHANNELS` to entries like `channel1:12345,channel2:67890`.
+   - Set `LOG_CHAT_EVENTS=1` if you want to log every incoming chat message (defaults to off).
+2. Install deps with `npm install`.
+3. Build with `npm run build`.
+4. Run with `npm start`.
 
-## What Phase 1 does
-- Fetches the channel chatroom ID.
-- Connects to the Kick chat WebSocket (Pusher).
-- Listens for chat messages and replies `Pong!` when it sees `!ping`.
+## Commands
 
-## Development phases
-- See `ROADMAP.md` for the six-phase plan (echo bot, API integration, multi-channel, permissions, subscriber-only, advanced features/stability).
+Commands use the `+` prefix (they also respond to `!` for legacy compatibility).
 
-## Folder structure
-```
-kick-mcsr-bot/
-├── src/
-│   ├── bot.js
-│   ├── commands.js
-│   ├── mcsrApi.js
-│   └── storage.js
-├── .env.example
-├── .env
-├── README.md
-├── ROADMAP.md
-├── package.json
-└── .vscode/
-    ├── launch.json
-    └── settings.json
-```
+| Command | Aliases | Description |
+| --- | --- | --- |
+| `+ping` | — | Simple connectivity test. |
+| `+elo <player>` | `+stats` | Elo, rank, win/loss stats, PB, averages. |
+| `+winrate <player>` | `+wr` | Lifetime wins/losses, win rate, FFR. |
+| `+average <player>` | `+avg` | Average completion time, PB, and finishes. |
+| `+race <player>` | `+wrace`, `+weeklyrace` | Weekly Ranked Race status. |
+| `+lastmatch <player>` | `+lm`, `+recent` | Most recent ranked match summary. |
+| `+record <p1> <p2>` | `+vs`, `+headtohead` | Head-to-head match record. |
+| `+mcsrhelp [command]` | `+mcsrcommands`, `+mcsr` | Lists all available MCSR commands. |
+
+Use `+mcsrhelp` to see the latest command roster and descriptions pulled directly from the registry. Custom commands can be added by creating a module under `src/bot/commands` and registering it inside `KickBot`.  

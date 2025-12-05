@@ -1,8 +1,29 @@
-const { fetchPlayerSummary, fetchLeaderboardTop, fetchLastMatch } = require('./mcsrApi');
-const { getLinkedAccount, setLinkedAccount, removeLinkedAccount } = require('./storage');
-const { addOrUpdateChannel } = require('./channelRegistry');
-const { joinChannel, leaveChannel } = require('./kickChannelManager');
-function parseCommand(raw) {
+import { fetchPlayerSummary, fetchLeaderboardTop, fetchLastMatch } from '../services/mcsrApi.js';
+import type { LeaderboardOptions } from '../services/mcsrApi.js';
+import { getLinkedAccount, setLinkedAccount, removeLinkedAccount } from '../persistence/linkedAccounts.js';
+import { addOrUpdateChannel } from '../persistence/channelRegistry.js';
+import { joinChannel, leaveChannel } from '../services/kickChannelManager.js';
+
+export interface CommandContext {
+  sender: string;
+  isBroadcaster: boolean;
+  channel: string;
+}
+
+export interface ParsedCommand {
+  name: string;
+  args: string[];
+}
+
+interface TargetResult {
+  username?: string;
+  error?: string;
+  season?: string | null;
+}
+
+const BOT_USERNAME = (process.env.KICK_BOT_USERNAME || '').toLowerCase();
+
+export function parseCommand(raw?: string | null): ParsedCommand | null {
   if (!raw || typeof raw !== 'string') return null;
   const trimmed = raw.trim();
   if (!trimmed.startsWith('!')) return null;
@@ -14,11 +35,11 @@ function parseCommand(raw) {
   };
 }
 
-async function handleCommand(command, ctx = {}) {
-  if (!command || !command.name) return null;
-  const context = {
+export async function handleCommand(command: ParsedCommand | null, ctx: CommandContext): Promise<string | null> {
+  if (!command?.name) return null;
+  const context: CommandContext = {
     sender: ctx.sender || '',
-    isBroadcaster: !!ctx.isBroadcaster,
+    isBroadcaster: Boolean(ctx.isBroadcaster),
     channel: ctx.channel || '',
   };
 
@@ -48,19 +69,19 @@ async function handleCommand(command, ctx = {}) {
     case 'link':
       return handleLinkCommand(command.args, context);
     case 'unlink':
-      return handleUnlinkCommand(command.args, context);
+      return handleUnlinkCommand(context);
     case 'join':
       return handleJoinCommand(command.args, context);
     case 'joinchannel':
-      return handleJoinChannelCommand(command.args, context);
+      return handleJoinChannelCommand(command.args);
     case 'leavechannel':
-      return handleLeaveChannelCommand(command.args, context);
+      return handleLeaveChannelCommand(command.args);
     default:
       return null;
   }
 }
 
-async function handleRankCommand(args) {
+async function handleRankCommand(args: string[]): Promise<string> {
   const username = args?.[0];
   if (!username) {
     return 'Usage: !rank [player]';
@@ -72,7 +93,6 @@ async function handleRankCommand(args) {
       return `No MCSR data found for "${username}".`;
     }
 
-    // Try to extract a few common fields, fall back to generic output.
     const display = data.nickname || data.username || data.name || username;
     const rating =
       data.eloRate ??
@@ -95,12 +115,12 @@ async function handleRankCommand(args) {
     if (globalRank !== undefined) parts.push(`#${globalRank}`);
 
     return parts.length > 1 ? parts.join(' | ') : `Found player "${display}".`;
-  } catch (err) {
+  } catch {
     return 'MCSR API error, try again later.';
   }
 }
 
-async function handleStatsCommand(args) {
+async function handleStatsCommand(args: string[]): Promise<string> {
   const username = args?.[0];
   if (!username) {
     return 'Usage: !stats [player]';
@@ -143,15 +163,15 @@ async function handleStatsCommand(args) {
     if (ffr !== undefined) parts.push(`FFR ${ffr}%`);
 
     return parts.join(' | ');
-  } catch (err) {
+  } catch {
     return 'MCSR API error, try again later.';
   }
 }
 
-async function handleTopCommand(args) {
-  let mode = 'elo';
-  let country = null;
-  let rawLimit = null;
+async function handleTopCommand(args: string[]): Promise<string> {
+  let mode: LeaderboardOptions['board'] = 'elo';
+  let country: string | null = null;
+  let rawLimit: string | null = null;
 
   for (const arg of args || []) {
     if (/^phase$/i.test(arg)) mode = 'phase';
@@ -172,16 +192,16 @@ async function handleTopCommand(args) {
     const entries = await fetchLeaderboardTop(safeLimit, { board: mode, country });
     if (!entries.length) return 'No leaderboard data available right now.';
 
-    const parts = entries.map((p, idx) => {
-      const rank = p.eloRank ?? p.rank ?? p.position ?? idx + 1;
-      const name = p.nickname || p.username || p.name || `#${rank}`;
+    const parts = entries.map((entry, index) => {
+      const rank = (entry.eloRank ?? entry.rank ?? entry.position ?? index + 1) as number;
+      const name = (entry.nickname || entry.username || entry.name || `#${rank}`) as string;
       if (mode === 'record') {
-        const time = p.time ?? p.bestTime ?? p.best_time ?? null;
+        const time = (entry.time ?? entry.bestTime ?? entry.best_time) as number | undefined;
         const timeText = time ? formatMs(time) : 'N/A';
         return `${rank}. ${name} (${timeText})`;
       }
       const rating =
-        p.eloRate ?? p.elo ?? p.rating ?? p.phasePoint ?? p.phasePoints ?? p.points ?? '?';
+        entry.eloRate ?? entry.elo ?? entry.rating ?? entry.phasePoint ?? entry.phasePoints ?? entry.points ?? '?';
       return `${rank}. ${name} (${rating})`;
     });
 
@@ -195,17 +215,17 @@ async function handleTopCommand(args) {
         : 'Top elo';
     const countryLabel = country ? ` [${country}]` : '';
     return `${label}${countryLabel}: ${parts.join(' | ')}`;
-  } catch (err) {
+  } catch {
     return 'MCSR API error, try again later.';
   }
 }
 
-async function handleEloCommand(args, ctx) {
+async function handleEloCommand(args: string[], ctx: CommandContext): Promise<string> {
   const target = resolveTarget(args, ctx);
   if (target.error) return target.error;
 
   try {
-    const data = await fetchPlayerSummary(target.username);
+    const data = await fetchPlayerSummary(target.username!);
     if (!data) {
       return `No MCSR data found for "${target.username}".`;
     }
@@ -250,17 +270,17 @@ async function handleEloCommand(args, ctx) {
     const matchesText = matches !== undefined ? `${matches}` : 'No data available.';
 
     return `Player: ${display} | Elo: ${rating} | Rank: #${rank} | Winrate: ${winrate} | Forfeit: ${ffr} | Avg Time: ${avgTime} | Matches: ${matchesText}`;
-  } catch (err) {
+  } catch {
     return 'MCSR API error, try again later.';
   }
 }
 
-async function handleAverageCommand(args, ctx) {
+async function handleAverageCommand(args: string[], ctx: CommandContext): Promise<string> {
   const target = resolveTargetWithSeason(args, ctx);
   if (target.error) return target.error;
 
   try {
-    const data = await fetchPlayerSummary(target.username);
+    const data = await fetchPlayerSummary(target.username!);
     if (!data) return `No MCSR data found for "${target.username}".`;
 
     const statsRoot = data.statistics || {};
@@ -287,26 +307,26 @@ async function handleAverageCommand(args, ctx) {
     if (target.season) parts.push(`Season: ${target.season}`);
 
     return parts.join(' | ');
-  } catch (err) {
+  } catch {
     return 'MCSR API error, try again later.';
   }
 }
 
-async function handleLastMatchCommand(args, ctx) {
+async function handleLastMatchCommand(args: string[], ctx: CommandContext): Promise<string> {
   const target = resolveTarget(args, ctx);
   if (target.error) return target.error;
 
   try {
-    const summary = await fetchPlayerSummary(target.username);
+    const summary = await fetchPlayerSummary(target.username!);
     if (!summary) return `No MCSR data found for "${target.username}".`;
 
-    const lastMatch = await fetchLastMatch(target.username);
+    const lastMatch = await fetchLastMatch(target.username!);
     if (!lastMatch) return `No recent matches found for "${target.username}".`;
 
     const playerUuid = summary.uuid;
     const winnerUuid = lastMatch.result?.uuid;
-    const playerChange = (lastMatch.changes || []).find((c) => c.uuid === playerUuid);
-    const opponent = (lastMatch.players || []).find((p) => p.uuid !== playerUuid);
+    const playerChange = lastMatch.changes?.find((change) => change.uuid === playerUuid);
+    const opponent = lastMatch.players?.find((player) => player.uuid !== playerUuid);
 
     const outcome = winnerUuid
       ? winnerUuid === playerUuid
@@ -323,17 +343,17 @@ async function handleLastMatchCommand(args, ctx) {
 
     const oppName = opponent?.nickname || opponent?.name || 'Unknown';
     return `Last match for ${summary.nickname || target.username}: ${outcome} vs ${oppName} | Time: ${timeText} | Elo change: ${deltaText}`;
-  } catch (err) {
+  } catch {
     return 'MCSR API error, try again later.';
   }
 }
 
-async function handleWinrateCommand(args, ctx) {
+async function handleWinrateCommand(args: string[], ctx: CommandContext): Promise<string> {
   const target = resolveTargetWithSeason(args, ctx);
   if (target.error) return target.error;
 
   try {
-    const data = await fetchPlayerSummary(target.username);
+    const data = await fetchPlayerSummary(target.username!);
     if (!data) return `No MCSR data found for "${target.username}".`;
 
     const statsRoot = data.statistics || {};
@@ -365,18 +385,15 @@ async function handleWinrateCommand(args, ctx) {
     if (target.season) parts.push(`Season: ${target.season}`);
 
     return parts.join(' | ');
-  } catch (err) {
+  } catch {
     return 'MCSR API error, try again later.';
   }
 }
 
-async function handleRecordCommand(args, ctx) {
-  // Head-to-head data isn't exposed by the current public API; return a clear message.
-  // This stub keeps the command registered without breaking routing.
+async function handleRecordCommand(args: string[], ctx: CommandContext): Promise<string> {
   const userA = args?.[0];
   const userB = args?.[1];
 
-  // Attempt to resolve linked account when only one name is provided.
   let resolvedA = userA;
   let resolvedB = userB;
   if (!resolvedA) {
@@ -392,7 +409,6 @@ async function handleRecordCommand(args, ctx) {
     }
   }
 
-  // If we still don't have two names, ask for them.
   if (!resolvedA || !resolvedB) {
     return 'Usage: !record [player1] [player2] (head-to-head records not available yet)';
   }
@@ -400,7 +416,7 @@ async function handleRecordCommand(args, ctx) {
   return 'Head-to-head records are not available via the public MCSR API yet.';
 }
 
-function resolveTarget(args, ctx) {
+function resolveTarget(args: string[], ctx: CommandContext): TargetResult {
   const provided = args?.[0];
   if (provided) return { username: provided };
 
@@ -413,9 +429,9 @@ function resolveTarget(args, ctx) {
   return { error: "You don't have an MCSR account linked. Please provide a username." };
 }
 
-function resolveTargetWithSeason(args, ctx) {
-  let season = null;
-  const filtered = [];
+function resolveTargetWithSeason(args: string[], ctx: CommandContext): TargetResult {
+  let season: string | null = null;
+  const filtered: string[] = [];
   for (const arg of args || []) {
     const match = /^season:(.+)$/i.exec(arg);
     if (match) {
@@ -430,9 +446,9 @@ function resolveTargetWithSeason(args, ctx) {
   return { username: target.username, season };
 }
 
-function formatMs(ms) {
+function formatMs(ms?: number | null): string {
   if (!Number.isFinite(ms)) return 'No data available.';
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
@@ -442,7 +458,7 @@ function formatMs(ms) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-function computeAverageMs(stats) {
+function computeAverageMs(stats: any): number | undefined {
   if (!stats) return undefined;
   const completionMs =
     stats?.completionTime?.ranked ??
@@ -460,11 +476,11 @@ function computeAverageMs(stats) {
   return completionMs;
 }
 
-function listCommands() {
+function listCommands(): string {
   return 'Commands: !ping, !rank [user], !stats [user], !elo [user], !winrate [user] season:<n>, !avg [user] season:<n>, !lastmatch [user], !lb [limit|phase|predicted|record|country:XX], !record <user1> <user2>, !link <mc>, !unlink, !join, !joinchannel <channel>, !mcsrcommands';
 }
 
-async function handleLinkCommand(args, ctx) {
+async function handleLinkCommand(args: string[], ctx: CommandContext): Promise<string> {
   const target = args?.[0];
   if (!target) {
     return 'Usage: !link [mc-username]';
@@ -474,15 +490,13 @@ async function handleLinkCommand(args, ctx) {
   return ok ? `Linked ${actor} -> ${target}` : 'Failed to link account.';
 }
 
-async function handleUnlinkCommand(args, ctx) {
+async function handleUnlinkCommand(ctx: CommandContext): Promise<string> {
   const actor = ctx.sender || '';
   const removed = removeLinkedAccount(actor);
   return removed ? `Unlinked ${actor}` : `No linked account found for ${actor}.`;
 }
 
-async function handleJoinCommand(args, ctx) {
-  // Allow joining only from the bot's own channel
-  const BOT_USERNAME = (process.env.KICK_BOT_USERNAME || '').toLowerCase();
+async function handleJoinCommand(args: string[], ctx: CommandContext): Promise<string> {
   if ((ctx.channel || '').toLowerCase() !== BOT_USERNAME) {
     console.log(`[JOIN] Ignored !join from ${ctx.sender || 'unknown'} in non-bot channel "${ctx.channel || ''}"`);
     return 'Use !join in the bot channel only.';
@@ -494,8 +508,7 @@ async function handleJoinCommand(args, ctx) {
     return 'Usage: !join [channel]';
   }
 
-  const broadcasterUserId = null; // Placeholder; populate if you have the userId available
-  const ok = addOrUpdateChannel(targetChannel, broadcasterUserId);
+  const ok = addOrUpdateChannel(targetChannel, null);
   if (ok) {
     console.log(`[JOIN] Registered channel "${targetChannel}" requested by ${ctx.sender || 'unknown sender'}`);
     return `Registered channel "${targetChannel}". The bot will join when modded.`;
@@ -504,7 +517,7 @@ async function handleJoinCommand(args, ctx) {
   return 'Failed to register channel.';
 }
 
-async function handleJoinChannelCommand(args, ctx) {
+async function handleJoinChannelCommand(args: string[]): Promise<string> {
   const target = args?.[0];
   if (!target) {
     return 'Usage: !joinchannel [channelName]';
@@ -518,7 +531,7 @@ async function handleJoinChannelCommand(args, ctx) {
   }
 }
 
-async function handleLeaveChannelCommand(args, ctx) {
+async function handleLeaveChannelCommand(args: string[]): Promise<string> {
   const target = args?.[0];
   if (!target) {
     return 'Usage: !leavechannel [channelName]';
@@ -531,8 +544,3 @@ async function handleLeaveChannelCommand(args, ctx) {
     return `Failed to leave ${target}`;
   }
 }
-
-module.exports = {
-  parseCommand,
-  handleCommand,
-};

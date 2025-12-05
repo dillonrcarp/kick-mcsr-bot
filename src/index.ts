@@ -1,0 +1,13 @@
+import { loadEnv } from './config/env.js';
+import { KickBot } from './bot/kickBot.js';
+
+async function main(): Promise<void> {
+  const config = loadEnv();
+  const bot = new KickBot(config);
+  await bot.start();
+}
+
+main().catch((err) => {
+  console.error('Bot crashed:', err);
+  process.exit(1);
+});

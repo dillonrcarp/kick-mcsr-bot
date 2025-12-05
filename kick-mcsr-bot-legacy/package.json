@@ -1,7 +1,7 @@
 {
   "name": "kick-mcsr-bot",
-  "version": "0.3.0",
-  "description": "Minimal Kick chat bot that answers !ping",
+  "version": "0.2.0",
+  "description": "Kick chat bot that surfaces MCSR Ranked stats.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
