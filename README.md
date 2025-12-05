@@ -11,6 +11,16 @@ Kick chat bot with pluggable commands for MCSR Ranked stats.
 3. Build with `npm run build`.
 4. Run with `npm start`.
 
+## Running in Docker
+
+1. Build the image: `docker build -t kick-mcsr-bot .`
+2. Run the bot, passing your `.env` file and mounting `data/` so link/channel state persists between restarts:
+   ```bash
+   docker run --env-file .env -v $(pwd)/data:/app/data kick-mcsr-bot
+   ```
+   - If you run into permissions errors writing to the mounted `data/` directory, ensure the host folder is writable or run with `-u $(id -u):$(id -g)` so the container uses your host user.
+3. Use `-d` to run detached or override `node dist/index.js` with alternative commands if necessary.
+
 ## Commands
 
 Commands use the `+` prefix (they also respond to `!` for legacy compatibility).
