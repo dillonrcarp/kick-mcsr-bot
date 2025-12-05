@@ -261,6 +261,9 @@ export class KickBot {
           const data = (err as { response?: { data?: unknown } }).response?.data;
           const message = (err as Error)?.message;
           console.error('Failed to send reply', { status, data, message, channel: binding.channel });
+          if (this.isModRequiredError(err)) {
+            await this.notifyModRequirement(binding);
+          }
         }
       },
     };
@@ -478,5 +481,35 @@ export class KickBot {
     console.log('[LEAVE] Removed', existing.channel, existing.chatroomId);
     await this.sendMessage(binding.chatroomId, `Bot disconnected from ${existing.channel}.`);
     return true;
+  }
+
+  private isModRequiredError(err: unknown): boolean {
+    const response = (err as { response?: { status?: number; data?: any } }).response;
+    if (!response || response.status !== 400) return false;
+    const statusMessage = response.data?.status?.message || response.data?.status?.code;
+    if (typeof statusMessage === 'string') {
+      return statusMessage.toUpperCase().includes('MAX_SPECIAL_CHARS');
+    }
+    if (typeof response.data?.message === 'string') {
+      return response.data.message.toUpperCase().includes('MAX_SPECIAL_CHARS');
+    }
+    return false;
+  }
+
+  private async notifyModRequirement(binding: ChatroomInfo): Promise<void> {
+    const notice = this.buildModInstruction(binding.channel);
+    try {
+      await this.sendMessage(binding.chatroomId, notice);
+      console.log(`[MOD-NOTICE] Reminded #${binding.channel} to mod the bot.`);
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      const data = (err as { response?: { data?: unknown } }).response?.data;
+      const message = (err as Error)?.message;
+      console.error('Failed to send mod reminder', { status, data, message, channel: binding.channel });
+    }
+  }
+
+  private buildModInstruction(channel: string): string {
+    return `Please mod @${this.config.botUsername} in #${channel} to unlock the full command set.`;
   }
 }
