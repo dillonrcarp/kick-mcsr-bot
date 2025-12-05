@@ -108,81 +108,28 @@ export interface PlayerMatchStats {
 export async function getLastMatch(username: string): Promise<LastMatchEntry | null> {
   if (!username) return null;
   const slug = username.trim();
-  // Use the per-user matches endpoint to ensure we only get this player's games.
-  const url = `${apiBase()}/users/${encodeURIComponent(slug)}/matches?limit=3`;
+  const perUserUrl = `${apiBase()}/users/${encodeURIComponent(slug)}/matches?limit=3`;
   try {
-    const { data } = await axios.get(url, { timeout: 8000 });
+    const { data } = await axios.get(perUserUrl, { timeout: 8000 });
     const payload = data?.data ?? data;
     if (!Array.isArray(payload) || payload.length === 0) return null;
     const match = payload[0];
     if (!match) return null;
 
-    // Newer match format: players array with changes
-    if (Array.isArray(match.players) && match.players.length >= 2) {
-      const changeMap = new Map<string, { after?: number; delta?: number }>();
-      if (Array.isArray(match.changes)) {
-        for (const entry of match.changes) {
-          const uuid = entry?.uuid;
-          if (!uuid) continue;
-          const after = numberOrUndefined(entry.eloRate ?? entry.elo);
-          const delta = numberOrUndefined(entry.change ?? entry.delta);
-          changeMap.set(String(uuid), { after, delta });
-        }
-      }
-
-      const normalize = (player: any): PlayerMatchStats => {
-        const uuid = player?.uuid ? String(player.uuid) : undefined;
-        const change = uuid ? changeMap.get(uuid) : undefined;
-        const after = change?.after ?? numberOrUndefined(player.eloRate ?? player.elo_rate);
-        const delta = change?.delta;
-        const before =
-          Number.isFinite(after) && Number.isFinite(delta) ? Number(after) - Number(delta) : undefined;
-        return {
-          name: player?.nickname || player?.name || player?.username || slug,
-          rank: numberOrUndefined(player?.eloRank ?? player?.rank ?? player?.player_rank),
-          eloBefore: before,
-          eloAfter: after,
-        };
-      };
-
-      const [p1, p2] = match.players;
-      const playerA = normalize(p1);
-      const playerB = normalize(p2);
-
-      const winnerUuid = match.result?.uuid ? String(match.result.uuid) : null;
-      let winner: 'A' | 'B' | null = null;
-      if (winnerUuid) {
-        if (p1?.uuid && String(p1.uuid) === winnerUuid) winner = 'A';
-        else if (p2?.uuid && String(p2.uuid) === winnerUuid) winner = 'B';
-      }
-
-      const ts =
-        numberOrUndefined(match.date ?? match.timestamp ?? match.played_at) ?? Date.now();
-      const playedAt = ts < 1e12 ? ts * 1000 : ts; // convert seconds to ms if needed
-
-      return {
-        playedAt,
-        seedType: match.seedType || match.seed_type || match.seed?.overworld || match.seed?.id,
-        playerA,
-        playerB,
-        winner,
-        matchNumber: numberOrUndefined(match.match_number ?? match.id),
-        durationMs: numberOrUndefined(match.result?.time ?? match.duration ?? match.time),
-      };
+    const normalized = normalizeMatchPayload(match, slug);
+    if (normalized && hasMeaningfulPlayers(normalized)) {
+      return normalized;
     }
 
-    // Legacy match format fallback
-    const playerA = normalizeMatchPlayer(match.player_a || match.playerA || {});
-    const playerB = normalizeMatchPlayer(match.player_b || match.playerB || {});
-    return {
-      playedAt: numberOrUndefined(match.timestamp) ?? numberOrUndefined(match.played_at) ?? Date.now(),
-      seedType: match.seed_type || match.seedType,
-      playerA,
-      playerB,
-      winner: normalizeWinner(match.winner),
-      matchNumber: numberOrUndefined(match.match_number ?? match.id),
-      durationMs: numberOrUndefined(match.time ?? match.duration),
-    };
+    const legacyMatch = await fetchLegacyMatch(slug);
+    if (legacyMatch) {
+      const fallback = normalizeMatchPayload(legacyMatch, slug);
+      if (fallback && hasMeaningfulPlayers(fallback)) {
+        return fallback;
+      }
+    }
+
+    return normalized;
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status;
     if (status === 404) {
@@ -192,13 +139,380 @@ export async function getLastMatch(username: string): Promise<LastMatchEntry | n
   }
 }
 
-function normalizeMatchPlayer(data: Record<string, any>): PlayerMatchStats {
+function hasMeaningfulPlayers(entry: LastMatchEntry | null): entry is LastMatchEntry {
+  if (!entry || !entry.playerA || !entry.playerB) return false;
+  const hasName = (player: PlayerMatchStats | undefined): boolean =>
+    Boolean(player && player.name && player.name !== 'Unknown');
+  return hasName(entry.playerA) && hasName(entry.playerB);
+}
+
+function normalizeMatchPayload(match: any, slug: string): LastMatchEntry | null {
+  if (!match) return null;
+
+  if (Array.isArray(match.players) && match.players.length >= 2) {
+    const changeMap = new Map<string, { after?: number; delta?: number }>();
+    if (Array.isArray(match.changes)) {
+      for (const entry of match.changes) {
+        const uuid = entry?.uuid;
+        if (!uuid) continue;
+        const after = numberOrUndefined(entry.eloRate ?? entry.elo);
+        const delta = numberOrUndefined(entry.change ?? entry.delta);
+        changeMap.set(String(uuid), { after, delta });
+      }
+    }
+
+    const normalize = (player: any): PlayerMatchStats => {
+      const uuid = player?.uuid ? String(player.uuid) : undefined;
+      const change = uuid ? changeMap.get(uuid) : undefined;
+      const after = change?.after ?? numberOrUndefined(player.eloRate ?? player.elo_rate);
+      const delta = change?.delta;
+      const before =
+        Number.isFinite(after) && Number.isFinite(delta) ? Number(after) - Number(delta) : undefined;
+      return {
+        name: player?.nickname || player?.name || player?.username || slug,
+        rank: numberOrUndefined(player?.eloRank ?? player?.rank ?? player?.player_rank),
+        eloBefore: before,
+        eloAfter: after,
+      };
+    };
+
+    const [p1, p2] = match.players;
+    const playerA = normalize(p1);
+    const playerB = normalize(p2);
+
+    const winnerUuid = match.result?.uuid ? String(match.result.uuid) : null;
+    let winner: 'A' | 'B' | null = null;
+    if (winnerUuid) {
+      if (p1?.uuid && String(p1.uuid) === winnerUuid) winner = 'A';
+      else if (p2?.uuid && String(p2.uuid) === winnerUuid) winner = 'B';
+    }
+
+    const ts = numberOrUndefined(match.date ?? match.timestamp ?? match.played_at) ?? Date.now();
+    const playedAt = ts < 1e12 ? ts * 1000 : ts;
+
+    return {
+      playedAt,
+      seedType: match.seedType || match.seed_type || match.seed?.overworld || match.seed?.id,
+      playerA,
+      playerB,
+      winner,
+      matchNumber: numberOrUndefined(match.match_number ?? match.id),
+      durationMs: numberOrUndefined(match.result?.time ?? match.duration ?? match.time),
+    };
+  }
+
+  const playerA = normalizeLegacyMatchPlayer(match, 'A', slug);
+  const playerB = normalizeLegacyMatchPlayer(match, 'B');
   return {
-    name: data.player_name || data.playerName || data.name || 'Unknown',
-    rank: numberOrUndefined(data.player_rank ?? data.rank),
-    eloBefore: numberOrUndefined(data.player_elo_before ?? data.elo_before ?? data.eloBefore),
-    eloAfter: numberOrUndefined(data.player_elo_after ?? data.elo_after ?? data.eloAfter),
+    playedAt: numberOrUndefined(match.timestamp) ?? numberOrUndefined(match.played_at) ?? Date.now(),
+    seedType: match.seed_type || match.seedType,
+    playerA,
+    playerB,
+    winner: normalizeWinner(match.winner),
+    matchNumber: numberOrUndefined(match.match_number ?? match.id),
+    durationMs: numberOrUndefined(match.time ?? match.duration),
   };
+}
+
+async function fetchLegacyMatch(username: string): Promise<any | null> {
+  const url = `${apiBase()}/matches?player=${encodeURIComponent(username)}&limit=1`;
+  try {
+    const { data } = await axios.get(url, { timeout: 8000 });
+    const payload = data?.data ?? data;
+    if (!Array.isArray(payload) || payload.length === 0) return null;
+    return payload[0];
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+function normalizeMatchPlayer(data: Record<string, any>, fallbackName?: string): PlayerMatchStats {
+  const nested =
+    (typeof data.player === 'object' && data.player) ||
+    (typeof data.user === 'object' && data.user) ||
+    (typeof data.profile === 'object' && data.profile) ||
+    null;
+
+  const name =
+    pickString(
+      data.player_name,
+      data.playerName,
+      data.nickname,
+      data.username,
+      data.name,
+      nested?.player_name,
+      nested?.playerName,
+      nested?.nickname,
+      nested?.username,
+      nested?.name,
+      fallbackName,
+    ) ?? 'Unknown';
+
+  const rank = pickNumber(
+    data.player_rank,
+    data.rank,
+    data.eloRank,
+    nested?.player_rank,
+    nested?.rank,
+    nested?.eloRank,
+  );
+
+  const delta = pickNumber(
+    data.elo_change,
+    data.change,
+    data.delta,
+    nested?.elo_change,
+    nested?.change,
+    nested?.delta,
+  );
+
+  let eloBefore = pickNumber(
+    data.player_elo_before,
+    data.elo_before,
+    data.eloBefore,
+    data.elo_start,
+    data.eloStart,
+    nested?.player_elo_before,
+    nested?.elo_before,
+    nested?.eloBefore,
+    nested?.elo_start,
+    nested?.eloStart,
+  );
+
+  let eloAfter = pickNumber(
+    data.player_elo_after,
+    data.elo_after,
+    data.eloAfter,
+    data.elo_end,
+    data.eloEnd,
+    data.eloRate,
+    data.elo,
+    nested?.player_elo_after,
+    nested?.elo_after,
+    nested?.eloAfter,
+    nested?.elo_end,
+    nested?.eloEnd,
+    nested?.eloRate,
+    nested?.elo,
+  );
+
+  if (eloBefore === undefined && eloAfter !== undefined && delta !== undefined) {
+    eloBefore = eloAfter - delta;
+  } else if (eloAfter === undefined && eloBefore !== undefined && delta !== undefined) {
+    eloAfter = eloBefore + delta;
+  }
+
+  return {
+    name,
+    rank,
+    eloBefore,
+    eloAfter,
+  };
+}
+
+function normalizeLegacyMatchPlayer(match: Record<string, any>, side: 'A' | 'B', fallbackName?: string): PlayerMatchStats {
+  const candidateKeys =
+    side === 'A'
+      ? ['player_a', 'playerA', 'player1', 'player_one', 'playerOne', 'player', 'user', 'profile', 'self', 'subject']
+      : [
+          'player_b',
+          'playerB',
+          'player2',
+          'player_two',
+          'playerTwo',
+          'opponent',
+          'opponent_player',
+          'opponentPlayer',
+          'opponentUser',
+          'opponent_user',
+          'enemy',
+          'versus',
+          'vs',
+        ];
+
+  const data: Record<string, any> = {};
+  let inlineName: string | undefined;
+
+  for (const key of candidateKeys) {
+    const value = match?.[key];
+    if (!value) continue;
+    if (typeof value === 'object') {
+      Object.assign(data, value);
+    } else if (typeof value === 'string' && !inlineName) {
+      inlineName = value;
+    }
+  }
+
+  const index = side === 'A' ? '1' : '2';
+  const word = side === 'A' ? 'one' : 'two';
+  const camel = side === 'A' ? 'One' : 'Two';
+  const short = side === 'A' ? 'p1' : 'p2';
+
+  const resolvedName = pickString(
+    data.player_name,
+    data.playerName,
+    inlineName,
+    match?.[`player${index}_name`],
+    match?.[`player_${word}_name`],
+    match?.[`player${camel}Name`],
+    match?.[`player${index}`],
+    match?.[`player_${word}`],
+    match?.[`player${camel}`],
+    match?.[`Player${index}`],
+    side === 'A' ? match?.player_name ?? match?.playerName ?? match?.subject_name ?? match?.subjectName : undefined,
+    side === 'B'
+      ? match?.opponent_name ??
+        match?.opponentName ??
+        match?.enemy_name ??
+        match?.enemyName ??
+        match?.versus_name ??
+        match?.versusName ??
+        match?.vs_name ??
+        match?.vsName
+      : undefined,
+    fallbackName,
+  );
+  if (resolvedName) data.player_name = resolvedName;
+
+  const resolvedRank = pickNumber(
+    data.player_rank,
+    data.rank,
+    match?.[`player${index}_rank`],
+    match?.[`player_${word}_rank`],
+    match?.[`player${camel}Rank`],
+    match?.[`Player${index}Rank`],
+    side === 'A' ? match?.player_rank ?? match?.playerRank ?? match?.subject_rank ?? match?.subjectRank : undefined,
+    side === 'B'
+      ? match?.opponent_rank ?? match?.opponentRank ?? match?.enemy_rank ?? match?.enemyRank
+      : undefined,
+  );
+  if (resolvedRank !== undefined) data.player_rank = resolvedRank;
+
+  const resolvedBefore = pickNumber(
+    data.player_elo_before,
+    data.elo_before,
+    data.eloBefore,
+    match?.[`player${index}_elo_before`],
+    match?.[`player_${word}_elo_before`],
+    match?.[`player${camel}EloBefore`],
+    match?.[`player${camel}BeforeElo`],
+    match?.[`player${index}EloBefore`],
+    match?.[`player_${word}EloBefore`],
+    match?.[`p${index}_elo_before`],
+    match?.[`${short}_elo_before`],
+    side === 'A'
+      ? match?.player_elo_before ??
+        match?.playerEloBefore ??
+        match?.subject_elo_before ??
+        match?.subjectEloBefore ??
+        match?.elo_before ??
+        match?.eloBefore
+      : undefined,
+    side === 'B'
+      ? match?.opponent_elo_before ??
+        match?.opponentEloBefore ??
+        match?.enemy_elo_before ??
+        match?.enemyEloBefore ??
+        match?.vs_elo_before ??
+        match?.versus_elo_before
+      : undefined,
+  );
+  if (resolvedBefore !== undefined) data.player_elo_before = resolvedBefore;
+
+  const resolvedAfter = pickNumber(
+    data.player_elo_after,
+    data.elo_after,
+    data.eloAfter,
+    match?.[`player${index}_elo_after`],
+    match?.[`player_${word}_elo_after`],
+    match?.[`player${camel}EloAfter`],
+    match?.[`player${index}_elo`],
+    match?.[`player_${word}_elo`],
+    match?.[`player${camel}Elo`],
+    match?.[`p${index}_elo_after`],
+    match?.[`p${index}_elo`],
+    match?.[`${short}_elo_after`],
+    match?.[`${short}_elo`],
+    side === 'A'
+      ? match?.player_elo_after ??
+        match?.playerEloAfter ??
+        match?.subject_elo_after ??
+        match?.subjectEloAfter ??
+        match?.elo_after ??
+        match?.eloAfter ??
+        match?.player_elo ??
+        match?.playerElo
+      : undefined,
+    side === 'B'
+      ? match?.opponent_elo_after ??
+        match?.opponentEloAfter ??
+        match?.enemy_elo_after ??
+        match?.enemyEloAfter ??
+        match?.vs_elo_after ??
+        match?.versus_elo_after ??
+        match?.opponent_elo ??
+        match?.opponentElo
+      : undefined,
+  );
+  if (resolvedAfter !== undefined) {
+    data.player_elo_after = resolvedAfter;
+    if (data.elo_after === undefined) data.elo_after = resolvedAfter;
+    if (data.elo === undefined) data.elo = resolvedAfter;
+  }
+
+  const resolvedChange = pickNumber(
+    data.elo_change,
+    data.change,
+    data.delta,
+    match?.[`player${index}_elo_change`],
+    match?.[`player_${word}_elo_change`],
+    match?.[`player${camel}EloChange`],
+    match?.[`p${index}_elo_change`],
+    match?.[`${short}_elo_change`],
+    side === 'A'
+      ? match?.player_elo_change ??
+        match?.playerEloChange ??
+        match?.elo_change ??
+        match?.eloChange ??
+        match?.subject_elo_change ??
+        match?.subjectEloChange
+      : undefined,
+    side === 'B'
+      ? match?.opponent_elo_change ??
+        match?.opponentEloChange ??
+        match?.enemy_elo_change ??
+        match?.enemyEloChange
+      : undefined,
+  );
+  if (resolvedChange !== undefined && data.change === undefined) {
+    data.change = resolvedChange;
+  }
+
+  return normalizeMatchPlayer(data, resolvedName ?? fallbackName);
+}
+
+function pickString(...values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function pickNumber(...values: Array<unknown>): number | undefined {
+  for (const value of values) {
+    const num = numberOrUndefined(value);
+    if (num !== undefined) {
+      return num;
+    }
+  }
+  return undefined;
 }
 
 function normalizeWinner(value: unknown): 'A' | 'B' | null {

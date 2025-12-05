@@ -40,9 +40,13 @@ export class LastMatchCommand implements ChatCommand {
 
       let playerA = match.playerA;
       let playerB = match.playerB;
+      let winnerFlag: 'A' | 'B' | null = match.winner ?? null;
       if (samePlayer(match.playerB.name, target) && !samePlayer(match.playerA.name, target)) {
         playerA = match.playerB;
         playerB = match.playerA;
+        if (winnerFlag) {
+          winnerFlag = winnerFlag === 'A' ? 'B' : 'A';
+        }
       }
 
       const timestamp = match.playedAt ?? Date.now();
@@ -51,7 +55,7 @@ export class LastMatchCommand implements ChatCommand {
       const playerASegment = formatPlayerSegment(playerA);
       const playerBSegment = formatPlayerSegment(playerB);
       const seedLabel = match.seedType ? `Seed Type: ${match.seedType}` : null;
-      const winnerLabel = formatWinner(match.winner ?? null, playerA, playerB, match.durationMs);
+      const winnerLabel = formatWinner(winnerFlag, playerA, playerB, match.durationMs);
       const deltaSegment = formatEloDelta(playerA, playerB);
 
       const header = `◆ ${playerA.name} • Last Match Stats`;

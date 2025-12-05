@@ -1,6 +1,8 @@
 services:
   kickmcsr:
-    image: kickmcsr-bot:latest    # use your existing built image
+    build:
+      context: .
+    image: kickmcsr-bot:latest
     container_name: kickmcsr
     restart: unless-stopped
     env_file:
