@@ -1,5 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getHeadToHead } from '../../mcsr/api.js';
+import { getLinkedMcName } from '../../storage/linkStore.js';
 
 export class RecordCommand implements ChatCommand {
   name = 'record';
@@ -8,23 +9,38 @@ export class RecordCommand implements ChatCommand {
   category = 'mcsr';
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
-    if (!args || args.length < 2) {
-      await ctx.reply('Usage: +record <player1> <player2>');
-      return;
+    const channelOwner = (ctx.channel || '').trim();
+    const sender = (ctx.username || '').trim();
+    const ownerLinked = channelOwner ? getLinkedMcName(channelOwner) : undefined;
+    const senderLinked = sender ? getLinkedMcName(sender) : undefined;
+
+    const [rawP1, rawP2] = args ?? [];
+    const arg1 = rawP1?.trim();
+    const arg2 = rawP2?.trim();
+
+    // If only one arg is provided, treat it as the opponent and fill playerOne from links/defaults.
+    let playerOne: string | null;
+    let playerTwo: string | null;
+    if (arg1 && arg2) {
+      playerOne = arg1;
+      playerTwo = arg2;
+    } else if (arg1) {
+      playerTwo = arg1;
+      playerOne = ownerLinked || senderLinked || sender || null;
+    } else {
+      playerOne = null;
+      playerTwo = null;
     }
 
-    const [rawP1, rawP2] = args;
-    const playerOne = rawP1?.trim();
-    const playerTwo = rawP2?.trim();
     if (!playerOne || !playerTwo) {
-      await ctx.reply('Usage: +record <player1> <player2>');
+      await ctx.reply('Usage: +record <player1> <player2> (link with !link MinecraftUsername to auto-fill yours)');
       return;
     }
 
     try {
       const stats = await getHeadToHead(playerOne, playerTwo);
       if (!stats) {
-        await ctx.reply(`No head-to-head matches found for ${playerOne} and ${playerTwo}.`);
+        await ctx.reply(`No head-to-head matches found for ${playerOne} and ${playerTwo}. Check spelling or link with !link <MinecraftUsername>.`);
         return;
       }
 
@@ -54,7 +70,7 @@ export class RecordCommand implements ChatCommand {
       await ctx.reply(`◆ ${segments.join(' • ')}`);
     } catch (err) {
       console.error('Failed to fetch head-to-head record for', playerOne, playerTwo, err);
-      await ctx.reply('Could not fetch head-to-head record.');
+      await ctx.reply('Could not fetch head-to-head record. Try again or verify names/linking with !link <MinecraftUsername>. Usage: +record <player1> <player2>');
     }
   }
 }

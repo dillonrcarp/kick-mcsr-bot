@@ -12,19 +12,19 @@ export class EloCommand implements ChatCommand {
     try {
       const resolved = await resolveTarget(ctx, args);
       if (!resolved) {
-        await ctx.reply('No linked account found for this channel or user. Use !link <MinecraftUsername> to set yours.');
+        await ctx.reply('No linked account found for this channel or user. Use !link MinecraftUsername to set yours.');
         return;
       }
       const summary = resolved.summary ?? (await getPlayerSummary(resolved.name));
       if (!summary) {
-        await ctx.reply(`Could not fetch MCSR stats for ${resolved.name}.`);
+        await ctx.reply(`Could not fetch MCSR stats for ${resolved.name}. Check spelling or link with !link MinecraftUsername.`);
         return;
       }
       const response = buildStatsMessage(summary, resolved.name);
       await ctx.reply(response);
     } catch (err) {
       console.error('Failed to fetch MCSR stats for', ctx.username, err);
-      await ctx.reply('Could not fetch MCSR stats for this request.');
+      await ctx.reply('Could not fetch MCSR stats for this request. Try again or link with !link MinecraftUsername.');
     }
   }
 }

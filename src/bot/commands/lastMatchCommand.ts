@@ -24,9 +24,9 @@ export class LastMatchCommand implements ChatCommand {
 
     if (!target) {
       if (reason === 'self') {
-        await ctx.reply('No linked account found for you. Use !link <MinecraftUsername> to set yours.');
+        await ctx.reply('No linked account found for you. Use !link MinecraftUsername to set yours.');
       } else {
-        await ctx.reply('No linked account found for this channel or user. Use !link <MinecraftUsername> to set yours.');
+        await ctx.reply('No linked account found for this channel or user. Use !link MinecraftUsername to set yours.');
       }
       return;
     }
@@ -34,7 +34,7 @@ export class LastMatchCommand implements ChatCommand {
     try {
       const match = await getLastMatch(target);
       if (!match || !match.playerA || !match.playerB) {
-        await ctx.reply(`No recent ranked matches found for ${target}.`);
+        await ctx.reply(`No recent ranked matches found for ${target}. Check spelling or link with !link MinecraftUsername.`);
         return;
       }
 
@@ -66,7 +66,7 @@ export class LastMatchCommand implements ChatCommand {
       await ctx.reply(`${header}\n${bodyParts.join(' • ')}`);
     } catch (err) {
       console.error('Failed to fetch last match data for', target ?? ctx.username, err);
-      await ctx.reply('Could not fetch last match data.');
+      await ctx.reply('Could not fetch last match data. Check names or link with !link MinecraftUsername.');
     }
   }
 }

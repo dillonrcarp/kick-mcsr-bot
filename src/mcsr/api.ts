@@ -40,7 +40,7 @@ export async function getPlayerSummary(username: string): Promise<PlayerSummary 
     return payload as PlayerSummary;
   } catch (err: unknown) {
     const status = (err as { response?: { status?: number } })?.response?.status;
-    if (status === 404) {
+    if (status === 404 || status === 400 || status === 422) {
       return null;
     }
     throw err;

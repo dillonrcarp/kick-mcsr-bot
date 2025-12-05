@@ -10,7 +10,7 @@ export class LinkCommand implements ChatCommand {
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
     const mcName = args?.[0]?.trim();
     if (!mcName) {
-      await ctx.reply('Usage: !link <MinecraftUsername>');
+      await ctx.reply('Usage: !link MinecraftUsername');
       return;
     }
 
