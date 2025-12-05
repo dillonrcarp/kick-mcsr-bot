@@ -34,7 +34,13 @@ export class EloCommand implements ChatCommand {
 function buildStatsMessage(data: Record<string, any>): string {
   const display = data.nickname || data.username || data.name || 'Player';
   const rating = pickNumber(data.eloRate, data.elo, data.rating, data.rank_score, data.mmr);
-  const peak = pickNumber(data.eloPeak, data.peak_elo, data.highest_elo, data.highestElo);
+  const peak = pickNumber(
+    data.eloPeak,
+    data.peak_elo,
+    data.highest_elo,
+    data.highestElo,
+    data.seasonResult?.highest,
+  );
   const rank = pickNumber(
     data.eloRank,
     data.global_rank,
@@ -53,11 +59,7 @@ function buildStatsMessage(data: Record<string, any>): string {
     data.rank_title ||
     (rating !== undefined ? tierFromElo(rating) : undefined);
 
-  const statsRoot =
-    data.statistics?.season ||
-    data.statistics?.total ||
-    data.statistics ||
-    {};
+  const statsRoot = data.statistics?.season || data.statistics?.total || data.statistics || {};
   const wins = pickNumber(statsRoot?.wins?.ranked, statsRoot?.wins, statsRoot?.totalWins);
   const losses = pickNumber(
     statsRoot?.loses?.ranked,
@@ -71,6 +73,12 @@ function buildStatsMessage(data: Record<string, any>): string {
     statsRoot?.matches?.ranked,
     statsRoot?.playedMatches,
     statsRoot?.matches,
+  );
+  const forfeits = pickNumber(
+    statsRoot?.forfeits?.ranked,
+    statsRoot?.forfeits,
+    statsRoot?.totalForfeits,
+    statsRoot?.ff,
   );
   const fastestMs = pickNumber(
     statsRoot?.bestTime?.ranked,
@@ -92,7 +100,6 @@ function buildStatsMessage(data: Record<string, any>): string {
 
   const segments: string[] = [];
 
-  // Elo + peak
   if (rating !== undefined && peak !== undefined) {
     segments.push(`Elo ${rating} (Peak ${peak})`);
   } else if (rating !== undefined) {
@@ -101,41 +108,36 @@ function buildStatsMessage(data: Record<string, any>): string {
     segments.push(`Peak ${peak}`);
   }
 
-  // Rank/tier
   const rankLabel = rank !== undefined ? `#${rank}` : null;
   if (tier && rankLabel) {
     segments.push(`${tier} (${rankLabel})`);
   } else if (tier) {
     segments.push(tier);
   } else if (rankLabel) {
-    segments.push(`Rank ${rankLabel}`);
+    segments.push(`#${rank}`);
   }
 
-  // W/L with winrate
   if (wins !== undefined && losses !== undefined) {
     const total = wins + losses;
     const winrate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
     segments.push(`W/L: ${wins}/${losses} (${winrate}%)`);
   }
 
-  // Matches played
   const totalMatches =
     matches ?? (wins !== undefined && losses !== undefined ? wins + losses : undefined);
   if (totalMatches !== undefined) {
     segments.push(`Played ${totalMatches} Matches`);
   }
 
-  // Personal best / average
   const fastestText = formatMs(fastestMs);
   const avgText = formatMs(avgMs);
   if (fastestText) {
     segments.push(avgText ? `PB: ${fastestText} (avg ${avgText})` : `PB: ${fastestText}`);
   }
 
-  // FF rate
-  const ffSegment = buildForfeitSegment(statsRoot, matches, wins, losses);
-  if (ffSegment) {
-    segments.push(ffSegment);
+  if (forfeits !== undefined && totalMatches !== undefined && totalMatches > 0) {
+    const rate = ((forfeits / totalMatches) * 100).toFixed(2);
+    segments.push(`FF Rate ${rate}%`);
   }
 
   if (!segments.length) return '◆ Stats: No stats available';
@@ -179,25 +181,6 @@ function computeAverageMs(stats: any): number | undefined {
     return completionMs / completions;
   }
   return Number.isFinite(completionMs) ? Number(completionMs) : undefined;
-}
-
-function buildForfeitSegment(
-  statsRoot: Record<string, any>,
-  matches?: number,
-  wins?: number,
-  losses?: number,
-): string | null {
-  const forfeits = pickNumber(
-    statsRoot?.forfeits?.ranked,
-    statsRoot?.forfeits,
-    statsRoot?.totalForfeits,
-    statsRoot?.ff,
-  );
-  if (forfeits === undefined) return null;
-  const denominator = matches ?? (wins !== undefined && losses !== undefined ? wins + losses : undefined);
-  if (!denominator || denominator <= 0) return null;
-  const rate = ((forfeits / denominator) * 100).toFixed(2);
-  return `FF Rate ${rate}%`;
 }
 
 function tierFromElo(elo: number): string {
