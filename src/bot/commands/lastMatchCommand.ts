@@ -113,7 +113,8 @@ async function resolveTarget(ctx: ChatCommandContext, wantsSelf: boolean): Promi
 
 function formatPlayerSegment(player: { name: string; rank?: number; eloBefore?: number; eloAfter?: number }): string {
   const rankText = player.rank !== undefined ? `#${player.rank}` : '#?';
-  const eloBase = player.eloBefore ?? player.eloAfter;
+  // Prefer post-match Elo so the header reflects the current rating.
+  const eloBase = player.eloAfter ?? player.eloBefore;
   const eloText = eloBase !== undefined ? `(${eloBase})` : '';
   return `${rankText} ${player.name} ${eloText}`.trim();
 }

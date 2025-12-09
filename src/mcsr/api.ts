@@ -161,35 +161,40 @@ interface NormalizedPlayerEntry {
 }
 
 function normalizePlayersMatch(match: any, slug: string): LastMatchEntry {
-  const changeMap = new Map<string, { after?: number; delta?: number }>();
+  const changeMap = new Map<string, { before?: number; after?: number; delta?: number }>();
   if (Array.isArray(match.changes)) {
     for (const entry of match.changes) {
       const uuid = entry?.uuid;
       if (!uuid) continue;
-      const after = numberOrUndefined(entry.eloRate ?? entry.elo);
+      const before = numberOrUndefined(entry.eloRate ?? entry.elo);
       const delta = numberOrUndefined(entry.change ?? entry.delta);
-      changeMap.set(String(uuid), { after, delta });
+      const after =
+        Number.isFinite(before) && Number.isFinite(delta) ? Number(before) + Number(delta) : undefined;
+      changeMap.set(String(uuid), { before, after, delta });
     }
   }
 
   const normalizedPlayers: NormalizedPlayerEntry[] = match.players.map((player: any) => {
     const uuid = player?.uuid ? String(player.uuid) : undefined;
     const change = uuid ? changeMap.get(uuid) : undefined;
-    const after =
-      change?.after ??
-      numberOrUndefined(player.eloRate ?? player.elo_rate ?? player.elo ?? player.eloRateAfter);
+    const afterFromPlayer = numberOrUndefined(
+      player.eloRate ?? player.elo_rate ?? player.elo ?? player.eloRateAfter,
+    );
+    const after = change?.after ?? afterFromPlayer;
     const delta =
       change?.delta ??
       numberOrUndefined(player.change ?? player.delta ?? player.elo_change ?? player.eloChange);
     const before =
-      Number.isFinite(after) && Number.isFinite(delta) ? Number(after) - Number(delta) : undefined;
+      change?.before ??
+      (Number.isFinite(after) && Number.isFinite(delta) ? Number(after) - Number(delta) : undefined);
+    const resolvedAfter = after ?? (Number.isFinite(before) && Number.isFinite(delta) ? Number(before) + Number(delta) : undefined);
 
     return {
       stats: {
         name: pickString(player?.nickname, player?.name, player?.username, player?.id) ?? 'Unknown',
         rank: numberOrUndefined(player?.eloRank ?? player?.rank ?? player?.player_rank),
         eloBefore: before,
-        eloAfter: after,
+        eloAfter: resolvedAfter,
       },
       uuid,
       raw: player,
