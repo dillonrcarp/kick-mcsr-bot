@@ -936,6 +936,48 @@ async function fetchUserMatches(player: string, limit = 200): Promise<any[]> {
   return collected.slice(0, limit);
 }
 
+function normalizeTimestampMs(value: unknown): number | null {
+  const num = numberOrUndefined(value);
+  if (num === undefined) return null;
+  return num < 1e12 ? num * 1000 : num;
+}
+
+interface MatchPlayerPick {
+  uuid?: string;
+  display?: string;
+}
+
+function pickPlayerFromMatch(match: any, targetNorm: string): MatchPlayerPick | null {
+  const players: any[] = Array.isArray(match?.players) ? match.players : [];
+  if (!players.length) return null;
+  const mapped = players.map((p) => ({
+    uuid: p?.uuid ? String(p.uuid) : undefined,
+    display: pickString(p?.nickname, p?.name, p?.username, p?.id),
+    norm: normalizeName(p?.nickname || p?.name || p?.username || p?.id || p?.uuid),
+  }));
+
+  const direct = mapped.find((entry) => entry.norm === targetNorm);
+  if (direct) {
+    return { uuid: direct.uuid, display: direct.display };
+  }
+
+  // Fallback: if only one player is present, assume it is the target.
+  if (mapped.length === 1) {
+    const fallback = mapped[0];
+    return { uuid: fallback.uuid, display: fallback.display };
+  }
+
+  return null;
+}
+
+function findEloChangeForPlayer(changes: any, uuid?: string): number | undefined {
+  if (!uuid) return undefined;
+  const list: any[] = Array.isArray(changes) ? changes : [];
+  const entry = list.find((item) => item?.uuid && String(item.uuid) === String(uuid));
+  if (!entry) return undefined;
+  return numberOrUndefined(entry.change ?? entry.delta ?? entry.elo_change ?? entry.eloChange ?? entry.elo_delta ?? entry.eloDelta);
+}
+
 function normalizeName(name: unknown): string {
   return String(name || '').trim().toLowerCase();
 }
@@ -1116,4 +1158,93 @@ export async function getPlayerAverage(username: string): Promise<PlayerAverage 
     }
     throw err;
   }
+}
+
+export interface RecentWindowStats {
+  player: string;
+  wins: number;
+  losses: number;
+  matches: number;
+  eloDelta: number;
+  bestWinMs?: number;
+  averageWinMs?: number;
+}
+
+export async function getRecentWindowStats(username: string, windowMs = 24 * 60 * 60 * 1000): Promise<RecentWindowStats | null> {
+  if (!username) return null;
+  const slug = username.trim();
+  const targetNorm = normalizeName(slug);
+  const count = 100; // maximum supported by the API
+
+  let wins = 0;
+  let losses = 0;
+  let eloDelta = 0;
+  let displayName: string | undefined;
+  const winTimes: number[] = [];
+  const futureGraceMs = 12 * 60 * 60 * 1000; // accept slight clock skew up to +12h
+  const anchorMs = Date.now();
+  const cutoffMs = anchorMs - Math.max(0, windowMs);
+  const seenMatchIds = new Set<string>();
+
+  const url = `${apiBase()}/users/${encodeURIComponent(slug)}/matches?count=${count}`;
+  const { data } = await axios.get(url, { timeout: 8000 });
+  const matches: any[] = Array.isArray(data?.data ?? data) ? (data?.data ?? data) : [];
+
+  for (const match of matches) {
+    const matchIdRaw = match?.id ?? match?.match_id ?? match?.matchId ?? match?.uuid;
+    const matchId = matchIdRaw !== undefined && matchIdRaw !== null ? String(matchIdRaw) : null;
+    if (matchId && seenMatchIds.has(matchId)) {
+      continue;
+    }
+    if (matchId) {
+      seenMatchIds.add(matchId);
+    }
+
+    const playedAt = normalizeTimestampMs(match.date ?? match.timestamp ?? match.played_at);
+    if (playedAt === null) continue;
+    if (playedAt < cutoffMs) continue;
+    if (playedAt > anchorMs + futureGraceMs) continue;
+
+    if (Number(match.type) && Number(match.type) !== 2) continue; // ranked only
+    const player = pickPlayerFromMatch(match, targetNorm);
+    if (!player) continue; // ensure target is present
+    if (!displayName && player.display) {
+      displayName = player.display;
+    }
+
+    const winnerUuid = match?.result?.uuid ? String(match.result.uuid) : null;
+    const isWin = player.uuid && winnerUuid ? String(player.uuid) === winnerUuid : false;
+    const change = findEloChangeForPlayer(match?.changes, player.uuid);
+    if (Number.isFinite(change)) {
+      eloDelta += Number(change);
+    }
+    if (isWin) {
+      wins += 1;
+      const durationMs = numberOrUndefined(match?.result?.time);
+      const forfeited = Boolean(match?.forfeited);
+      if (Number.isFinite(durationMs) && !forfeited) {
+        winTimes.push(Number(durationMs));
+      }
+    } else {
+      losses += 1;
+    }
+  }
+
+  const matchesCount = wins + losses;
+  if (matchesCount === 0) return null;
+
+  const bestWinMs = winTimes.length ? Math.min(...winTimes) : undefined;
+  const averageWinMs = winTimes.length
+    ? Math.round(winTimes.reduce((sum, v) => sum + v, 0) / winTimes.length)
+    : undefined;
+
+  return {
+    player: displayName || slug,
+    wins,
+    losses,
+    matches: matchesCount,
+    eloDelta,
+    bestWinMs,
+    averageWinMs,
+  };
 }

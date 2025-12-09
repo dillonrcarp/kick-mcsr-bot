@@ -20,6 +20,7 @@ import { AverageCommand } from './commands/averageCommand.js';
 import { MCSRHelpCommand } from './commands/mcsrHelpCommand.js';
 import { LinkCommand } from './commands/linkCommand.js';
 import { UnlinkCommand } from './commands/unlinkCommand.js';
+import { MCSRTodayCommand } from './commands/mcsrtodayCommand.js';
 
 interface PusherMessage {
   event?: string;
@@ -64,6 +65,7 @@ export class KickBot {
     this.commandRegistry.register(new AverageCommand());
     this.commandRegistry.register(new LinkCommand());
     this.commandRegistry.register(new UnlinkCommand());
+    this.commandRegistry.register(new MCSRTodayCommand());
     this.commandRegistry.register(new MCSRHelpCommand(this.commandRegistry));
   }
 
