@@ -21,6 +21,7 @@ import { MCSRHelpCommand } from './commands/mcsrHelpCommand.js';
 import { LinkCommand } from './commands/linkCommand.js';
 import { UnlinkCommand } from './commands/unlinkCommand.js';
 import { MCSRTodayCommand } from './commands/mcsrtodayCommand.js';
+import { PredictCommand } from './commands/predictCommand.js';
 
 interface PusherMessage {
   event?: string;
@@ -66,6 +67,7 @@ export class KickBot {
     this.commandRegistry.register(new LinkCommand());
     this.commandRegistry.register(new UnlinkCommand());
     this.commandRegistry.register(new MCSRTodayCommand());
+    this.commandRegistry.register(new PredictCommand());
     this.commandRegistry.register(new MCSRHelpCommand(this.commandRegistry));
   }
 

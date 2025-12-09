@@ -1,0 +1,206 @@
+import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
+import { fetchUserMatches } from '../../mcsr/api.js';
+import { computePlayerFeatures, type PlayerFeatureStats } from '../../mcsr/predictFeatures.js';
+import { predictOutcome, type PredictionOutcome } from '../../mcsr/predictScore.js';
+import { getLinkedMcName } from '../../storage/linkStore.js';
+
+interface PredictDeps {
+  fetchMatches: typeof fetchUserMatches;
+  computeFeatures: typeof computePlayerFeatures;
+  predict: typeof predictOutcome;
+  now: () => number;
+}
+
+interface ParsedArgs {
+  playerA: string;
+  playerB: string;
+  matchCount: number;
+}
+
+const DEFAULT_MATCHES = 10;
+const MAX_MATCHES = 50;
+const FETCH_BUFFER = 5;
+
+export class PredictCommand implements ChatCommand {
+  name = 'predict';
+  aliases = ['win'];
+  description = "Predict likely winner between two players based on their last X ranked matches.";
+  category = 'mcsr';
+
+  private readonly deps: PredictDeps;
+
+  constructor(deps?: Partial<PredictDeps>) {
+    this.deps = {
+      fetchMatches: deps?.fetchMatches ?? fetchUserMatches,
+      computeFeatures: deps?.computeFeatures ?? computePlayerFeatures,
+      predict: deps?.predict ?? predictOutcome,
+      now: deps?.now ?? (() => Date.now()),
+    };
+  }
+
+  async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
+    const parsed = await this.parseArgs(ctx, args);
+    if (!parsed.ok) {
+      await ctx.reply(parsed.message);
+      return;
+    }
+
+    const { playerA, playerB, matchCount } = parsed.value;
+    const anchor = this.deps.now();
+
+    try {
+      const [matchesA, matchesB] = await Promise.all([
+        this.deps.fetchMatches(playerA, matchCount + FETCH_BUFFER, { rankedOnly: true }),
+        this.deps.fetchMatches(playerB, matchCount + FETCH_BUFFER, { rankedOnly: true }),
+      ]);
+
+      const featuresA = this.deps.computeFeatures(matchesA, playerA, { limit: matchCount, anchorMs: anchor });
+      const featuresB = this.deps.computeFeatures(matchesB, playerB, { limit: matchCount, anchorMs: anchor });
+
+      if (!featuresA || !featuresB) {
+        await ctx.reply('Not enough recent ranked data to make a prediction for those players.');
+        return;
+      }
+
+      const outcome = this.deps.predict({
+        playerA: featuresA,
+        playerB: featuresB,
+        targetSample: matchCount,
+        anchorMs: anchor,
+      });
+
+      if (!outcome) {
+        await ctx.reply('Could not compute a prediction. Try again with different players.');
+        return;
+      }
+
+      const message = formatPrediction(featuresA, featuresB, outcome, matchCount, anchor);
+      await ctx.reply(message);
+    } catch (err) {
+      console.error('Predict command failed', err);
+      await ctx.reply('Could not fetch data to make a prediction. Check names or try again later.');
+    }
+  }
+
+  private async parseArgs(
+    ctx: ChatCommandContext,
+    args: string[],
+  ): Promise<{ ok: true; value: ParsedArgs } | { ok: false; message: string }> {
+    let matchCount = DEFAULT_MATCHES;
+    const nameTokens: string[] = [];
+
+    for (const arg of args) {
+      const num = Number(arg);
+      if (Number.isFinite(num) && /^\d+$/.test(arg)) {
+        matchCount = clamp(Math.round(num), 1, MAX_MATCHES);
+      } else if (arg) {
+        nameTokens.push(arg);
+      }
+    }
+
+    let playerA: string | null = null;
+    let playerB: string | null = null;
+
+    if (nameTokens.length >= 2) {
+      playerA = resolvePlayer(nameTokens[0], ctx.channel, ctx.username, 'owner');
+      playerB = resolvePlayer(nameTokens[1], ctx.channel, ctx.username, 'sender');
+    } else if (nameTokens.length === 1) {
+      // Assume single arg is opponent; fill playerA from channel owner/link.
+      playerA = resolvePlayer(undefined, ctx.channel, ctx.username, 'owner');
+      playerB = resolvePlayer(nameTokens[0], ctx.channel, ctx.username, 'sender');
+    } else {
+      playerA = resolvePlayer(undefined, ctx.channel, ctx.username, 'owner');
+      playerB = resolvePlayer(undefined, ctx.channel, ctx.username, 'sender');
+    }
+
+    if (!playerA || !playerB) {
+      return {
+        ok: false,
+        message:
+          'Usage: !predict playerA playerB [matches] — use "me" for yourself. Defaults to channel vs sender when no names are provided.',
+      };
+    }
+
+    if (normalize(playerA) === normalize(playerB)) {
+      return { ok: false, message: 'Need two different players to predict a matchup.' };
+    }
+
+    return {
+      ok: true,
+      value: {
+        playerA,
+        playerB,
+        matchCount,
+      },
+    };
+  }
+}
+
+function resolvePlayer(
+  raw: string | undefined,
+  channel: string,
+  sender: string,
+  fallback: 'owner' | 'sender',
+): string | null {
+  const value = raw?.trim();
+  if (value && value.toLowerCase() === 'me') {
+    const linked = sender ? getLinkedMcName(sender) : undefined;
+    return linked ?? (sender ? sender : null);
+  }
+  if (value) return value;
+
+  if (fallback === 'owner') {
+    const linked = getLinkedMcName(channel);
+    if (linked) return linked;
+    return channel || null;
+  }
+
+  const linked = getLinkedMcName(sender);
+  if (linked) return linked;
+  return sender || null;
+}
+
+function formatPrediction(
+  a: PlayerFeatureStats,
+  b: PlayerFeatureStats,
+  outcome: PredictionOutcome,
+  matchCount: number,
+  anchor: number,
+): string {
+  const winnerName = outcome.winner === 'A' ? a.player : b.player;
+  const winnerProb = outcome.winner === 'A' ? outcome.probabilityA : outcome.probabilityB;
+  const pct = (winnerProb * 100).toFixed(1);
+  const confidencePct = Math.round(outcome.confidence * 100);
+
+  const factors = outcome.factors.length ? `Factors: ${outcome.factors.join('; ')}` : 'Factors: balanced slate';
+  const sample = `Sample: ${a.player} ${a.sample} vs ${b.player} ${b.sample} (last ${matchCount} ranked)`;
+  const recency = formatRecency(a, b, anchor);
+
+  return `◆ Predicted: ${winnerName} ~${pct}% (confidence ${confidencePct}%) • ${factors} • ${sample}${recency ? ' • ' + recency : ''}`;
+}
+
+function formatRecency(a: PlayerFeatureStats, b: PlayerFeatureStats, anchor: number): string | null {
+  const oldest = Math.min(a.oldestMatchAt ?? anchor, b.oldestMatchAt ?? anchor);
+  if (!Number.isFinite(oldest)) return null;
+  const ago = timeAgo(anchor - oldest);
+  return `Recency window: ~${ago}`;
+}
+
+function timeAgo(diffMs: number): string {
+  const seconds = Math.max(0, Math.floor(diffMs / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}d`;
+  if (hours > 0) return `${hours}h`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
+function normalize(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}

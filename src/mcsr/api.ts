@@ -914,21 +914,41 @@ async function computeHeadToHeadFromMatches(playerOne: string, playerTwo: string
   };
 }
 
-async function fetchUserMatches(player: string, limit = 200): Promise<any[]> {
+type HttpGet = (url: string, config?: Record<string, any>) => Promise<{ data: any }>;
+
+export interface FetchUserMatchesOptions {
+  pageSize?: number;
+  rankedOnly?: boolean;
+  httpGet?: HttpGet;
+  timeoutMs?: number;
+}
+
+export async function fetchUserMatches(
+  player: string,
+  limit = 200,
+  options: FetchUserMatchesOptions = {},
+): Promise<any[]> {
   const slug = player.trim();
   if (!slug) return [];
 
   const collected: any[] = [];
-  const pageSize = 20;
+  const pageSize = Math.max(1, options.pageSize ?? 20);
   let offset = 0;
+  const httpGet: HttpGet = options.httpGet ?? axios.get;
+  const timeout = options.timeoutMs ?? 8000;
 
   while (collected.length < limit) {
     const url = `${apiBase()}/users/${encodeURIComponent(slug)}/matches?limit=${pageSize}&offset=${offset}`;
-    const { data } = await axios.get(url, { timeout: 8000 });
+    const { data } = await httpGet(url, { timeout });
     const payload = data?.data ?? data;
     const page = Array.isArray(payload) ? payload : [];
     if (!page.length) break;
-    collected.push(...page);
+    for (const match of page) {
+      if (options.rankedOnly && Number(match?.type) && Number(match.type) !== 2) {
+        continue;
+      }
+      collected.push(match);
+    }
     if (page.length < pageSize) break;
     offset += pageSize;
   }
@@ -936,7 +956,7 @@ async function fetchUserMatches(player: string, limit = 200): Promise<any[]> {
   return collected.slice(0, limit);
 }
 
-function normalizeTimestampMs(value: unknown): number | null {
+export function normalizeTimestampMs(value: unknown): number | null {
   const num = numberOrUndefined(value);
   if (num === undefined) return null;
   return num < 1e12 ? num * 1000 : num;
@@ -970,7 +990,7 @@ function pickPlayerFromMatch(match: any, targetNorm: string): MatchPlayerPick | 
   return null;
 }
 
-function findEloChangeForPlayer(changes: any, uuid?: string): number | undefined {
+export function findEloChangeForPlayer(changes: any, uuid?: string): number | undefined {
   if (!uuid) return undefined;
   const list: any[] = Array.isArray(changes) ? changes : [];
   const entry = list.find((item) => item?.uuid && String(item.uuid) === String(uuid));
@@ -978,7 +998,7 @@ function findEloChangeForPlayer(changes: any, uuid?: string): number | undefined
   return numberOrUndefined(entry.change ?? entry.delta ?? entry.elo_change ?? entry.eloChange ?? entry.elo_delta ?? entry.eloDelta);
 }
 
-function normalizeName(name: unknown): string {
+export function normalizeName(name: unknown): string {
   return String(name || '').trim().toLowerCase();
 }
 
