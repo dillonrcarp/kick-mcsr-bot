@@ -5,7 +5,7 @@ import { getLinkedMcName } from '../../storage/linkStore.js';
 export class MCSRTodayCommand implements ChatCommand {
   name = 'mcsrtoday';
   aliases = ['today', 'td'];
-  description = 'Show ranked stats from the last 24 hours.';
+  description = 'Show ranked stats from the last 12 hours.';
   category = 'mcsr';
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
@@ -42,9 +42,10 @@ export class MCSRTodayCommand implements ChatCommand {
         }
       }
 
-      const stats = await getRecentWindowStats(target);
+      const twelveHoursMs = 12 * 60 * 60 * 1000;
+      const stats = await getRecentWindowStats(target, twelveHoursMs);
       if (!stats) {
-        await ctx.reply(`No match data found for last 24h for ${target}.`);
+        await ctx.reply(`No match data found for last 12h for ${target}.`);
         return;
       }
 
@@ -55,7 +56,7 @@ export class MCSRTodayCommand implements ChatCommand {
       const winrate = Math.round((stats.wins / matches) * 100);
 
       const segments = [
-        'Stats: Last 24h',
+        'Stats: Last 12h',
         `Best: ${bestText} (avg ${avgText})`,
         `Elo Δ ${eloText}`,
         `W/L: ${winrate}% (${stats.wins}/${stats.losses})`,
