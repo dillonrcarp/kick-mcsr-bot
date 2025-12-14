@@ -25,6 +25,7 @@ import { UnlinkCommand } from './commands/unlinkCommand.js';
 import { MCSRTodayCommand } from './commands/mcsrtodayCommand.js';
 import { PredictCommand } from './commands/predictCommand.js';
 import { FastestCommand } from './commands/fastestCommand.js';
+import { DingCommand } from './commands/dingCommand.js';
 import { HealthMonitor } from '../health/healthMonitor.js';
 
 interface PusherMessage {
@@ -88,6 +89,7 @@ export class KickBot {
     this.commandRegistry.register(new PredictCommand());
     this.commandRegistry.register(new FastestCommand());
     this.commandRegistry.register(new MCSRHelpCommand(this.commandRegistry));
+    this.commandRegistry.register(new DingCommand());
   }
 
   async start(): Promise<void> {

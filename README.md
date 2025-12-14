@@ -21,19 +21,35 @@ Kick chat bot with pluggable commands for MCSR Ranked stats.
    - If you run into permissions errors writing to the mounted `data/` directory, ensure the host folder is writable or run with `-u $(id -u):$(id -g)` so the container uses your host user.
 3. Use `-d` to run detached or override `node dist/index.js` with alternative commands if necessary.
 
+### Health, heartbeats, and restarts
+
+- The bot logs a heartbeat every ~45s that includes connection state, stale status, and last message time. Look for `[HEARTBEAT]` lines in `docker compose logs -f`.
+- A health snapshot is written to `data/health.json`. It is ignored by git but is mounted to the host so Docker HEALTHCHECK can read it.
+- The Docker image defines `HEALTHCHECK` using `node dist/health/healthcheck.js`; `docker compose` will surface unhealthy status and restart the container (`restart: unless-stopped` in `docker-compose.yml`).
+- You can manually check health inside the container: `docker exec kickmcsr node dist/health/healthcheck.js`.
+
 ## Commands
 
-Commands use the `+` prefix (they also respond to `!` for legacy compatibility).
+Commands use the `+` prefix (they also respond to `!` for compatibility).
 
 | Command | Aliases | Description |
 | --- | --- | --- |
-| `+ping` | — | Simple connectivity test. |
+| `+ping` | — | Simple latency test. |
+| `+ding` | — | Responds with `dong!`. |
 | `+elo <player>` | `+stats` | Elo, rank, win/loss stats, PB, averages. |
-| `+winrate <player>` | `+wr` | Lifetime wins/losses, win rate, FFR. |
+| `+winrate <player>` | `+wr` | Lifetime wins/losses, win rate, FFR%. |
 | `+average <player>` | `+avg` | Average completion time, PB, and finishes. |
-| `+race <player>` | `+wrace`, `+weeklyrace` | Weekly Ranked Race status. |
 | `+lastmatch <player>` | `+lm`, `+recent` | Most recent ranked match summary. |
 | `+record <p1> <p2>` | `+vs`, `+headtohead` | Head-to-head match record. |
+| `+mcsrtoday <player>` | `+today`, `+td` | Ranked stats from the last 12 hours. |
+| `+mcsrwr` | — | #1 record leaderboard entry with PB, avg, Elo/rank. |
+| `+predict <p1> <p2>` | `+win` | Predict likely winner using recent ranked matches. |
+| `+link <mcName>` | — | Link your Kick username to a Minecraft username. |
+| `+unlink [kickUser]` | — | Remove a linked Minecraft username. |
 | `+mcsrhelp [command]` | `+mcsrcommands`, `+mcsr` | Lists all available MCSR commands. |
+
+Other bot controls:
+- `!join` (from the home channel) — ask the bot to join your channel.
+- `!leave` (from the home channel) — disconnect the bot from a channel.
 
 Use `+mcsrhelp` to see the latest command roster and descriptions pulled directly from the registry. Custom commands can be added by creating a module under `src/bot/commands` and registering it inside `KickBot`.  
