@@ -1,5 +1,5 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
-import { fetchUserMatches } from '../../mcsr/api.js';
+import { fetchUserMatches, RateLimitError } from '../../mcsr/api.js';
 import { computePlayerFeatures, type PlayerFeatureStats } from '../../mcsr/predictFeatures.js';
 import { predictOutcome, type PredictionOutcome } from '../../mcsr/predictScore.js';
 import { getLinkedMcName } from '../../storage/linkStore.js';
@@ -77,6 +77,16 @@ export class PredictCommand implements ChatCommand {
       const message = formatPrediction(featuresA, featuresB, outcome, matchCount, anchor);
       await ctx.reply(message);
     } catch (err) {
+      if (err instanceof RateLimitError) {
+        const retrySeconds = err.retryAfterMs ? Math.ceil(err.retryAfterMs / 1000) : null;
+        console.error('Predict command rate-limited', { retryAfterMs: err.retryAfterMs });
+        await ctx.reply(
+          retrySeconds
+            ? `Rate limited by MCSR API. Please wait ~${retrySeconds}s and try again.`
+            : 'Rate limited by MCSR API. Please try again later.',
+        );
+        return;
+      }
       console.error('Predict command failed', err);
       await ctx.reply('Could not fetch data to make a prediction. Check names or try again later.');
     }

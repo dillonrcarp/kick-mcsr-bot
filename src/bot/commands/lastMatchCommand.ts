@@ -54,7 +54,7 @@ export class LastMatchCommand implements ChatCommand {
       const matchNumber = match.matchNumber ? `Match #${match.matchNumber}` : 'Ranked Match';
       const playerASegment = formatPlayerSegment(playerA);
       const playerBSegment = formatPlayerSegment(playerB);
-      const seedLabel = match.seedType ? `Seed Type: ${match.seedType}` : null;
+      const seedLabel = match.seedType ? `Seed Type: ${formatSeedType(match.seedType)}` : null;
       const winnerLabel = formatWinner(winnerFlag, playerA, playerB, match.durationMs);
       const deltaSegment = formatEloDelta(playerA, playerB);
 
@@ -73,6 +73,17 @@ export class LastMatchCommand implements ChatCommand {
       await ctx.reply('Could not fetch last match data. Check names or link with !link MinecraftUsername.');
     }
   }
+}
+
+function formatSeedType(raw: string | undefined | null): string {
+  if (!raw) return 'Unknown';
+  const cleaned = raw.replace(/_/g, ' ').trim();
+  if (!cleaned) return 'Unknown';
+  return cleaned
+    .toLowerCase()
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 interface ResolvedTarget {

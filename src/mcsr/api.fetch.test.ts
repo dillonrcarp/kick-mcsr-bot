@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { fetchUserMatches } from './api.js';
+import { fetchUserMatches, RateLimitError } from './api.js';
 
 type StubGet = (url: string) => Promise<{ data: any }>;
 
@@ -72,5 +72,36 @@ describe('fetchUserMatches', () => {
       [0],
       'expected a single page because the first page was short',
     );
+  });
+
+  it('stops after repeated filtered pages to avoid runaway pagination', async () => {
+    const calls: Array<{ offset: number; limit: number }> = [];
+    const stub: StubGet = async (url: string) => {
+      const parsed = new URL(url);
+      const limit = Number(parsed.searchParams.get('limit') ?? '0');
+      const offset = Number(parsed.searchParams.get('offset') ?? '0');
+      calls.push({ offset, limit });
+      // Always return a full page of unranked matches that will be filtered out.
+      return { data: Array.from({ length: limit }, () => ({ type: 1 })) };
+    };
+
+    const matches = await fetchUserMatches('PlayerOne', 50, { httpGet: stub, rankedOnly: true, pageSize: 10 });
+
+    assert.equal(matches.length, 0);
+    assert.ok(calls.length <= 5, `expected to stop after a few filtered pages, got ${calls.length}`);
+  });
+
+  it('surfaces rate limit errors with retry hints', async () => {
+    const rateLimited: StubGet = async () => {
+      const error: any = new Error('rate limit');
+      error.response = { status: 429, headers: { 'retry-after': '10' } };
+      throw error;
+    };
+
+    await assert.rejects(() => fetchUserMatches('PlayerOne', 10, { httpGet: rateLimited }), (err) => {
+      assert.ok(err instanceof RateLimitError);
+      assert.equal(err.retryAfterMs, 10000);
+      return true;
+    });
   });
 });

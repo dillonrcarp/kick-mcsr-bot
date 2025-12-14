@@ -1,6 +1,14 @@
 import axios from 'axios';
 
 const DEFAULT_BASE = 'https://mcsrranked.com/api';
+export class RateLimitError extends Error {
+  retryAfterMs?: number;
+  constructor(message: string, retryAfterMs?: number) {
+    super(message);
+    this.name = 'RateLimitError';
+    this.retryAfterMs = retryAfterMs;
+  }
+}
 
 function apiBase(): string {
   const configured = process.env.MCSR_API_BASE;
@@ -1022,18 +1030,45 @@ export async function fetchUserMatches(
   let offset = 0;
   const httpGet: HttpGet = options.httpGet ?? axios.get;
   const timeout = options.timeoutMs ?? 8000;
+  const maxPages = Math.max(3, Math.ceil((limit / pageSize) * 4));
+  let pageCount = 0;
+  let emptyFilteredPages = 0;
 
-  while (collected.length < limit) {
+  while (collected.length < limit && pageCount < maxPages) {
     const url = `${apiBase()}/users/${encodeURIComponent(slug)}/matches?limit=${pageSize}&offset=${offset}`;
-    const { data } = await httpGet(url, { timeout });
-    const payload = data?.data ?? data;
-    const page = Array.isArray(payload) ? payload : [];
+    let page: any[] = [];
+    try {
+      const { data } = await httpGet(url, { timeout });
+      const payload = data?.data ?? data;
+      page = Array.isArray(payload) ? payload : [];
+    } catch (err) {
+      const status = (err as { response?: { status?: number; headers?: any } })?.response?.status;
+      const retryAfter = (err as { response?: { headers?: Record<string, string> } })?.response?.headers?.['retry-after'];
+      if (status === 429) {
+        const retryMs = retryAfter ? Number(retryAfter) * 1000 : undefined;
+        throw new RateLimitError('Rate limited fetching matches', retryMs);
+      }
+      if (status === 400 || status === 404 || status === 422) {
+        break;
+      }
+      throw err;
+    }
+
+    pageCount += 1;
     if (!page.length) break;
+    let accepted = 0;
     for (const match of page) {
       if (options.rankedOnly && Number(match?.type) && Number(match.type) !== 2) {
         continue;
       }
       collected.push(match);
+      accepted += 1;
+    }
+    if (accepted === 0) {
+      emptyFilteredPages += 1;
+      if (emptyFilteredPages >= 5) break;
+    } else {
+      emptyFilteredPages = 0;
     }
     if (page.length < pageSize) break;
     offset += pageSize;
