@@ -24,4 +24,5 @@ COPY --from=builder /app/data ./data
 COPY package*.json ./
 RUN chown -R node:node /app
 USER node
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 CMD node dist/health/healthcheck.js
 CMD ["node", "dist/index.js"]

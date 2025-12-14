@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import WebSocket, { type RawData } from 'ws';
 import axios, { type RawAxiosRequestHeaders } from 'axios';
 
@@ -23,6 +25,7 @@ import { UnlinkCommand } from './commands/unlinkCommand.js';
 import { MCSRTodayCommand } from './commands/mcsrtodayCommand.js';
 import { PredictCommand } from './commands/predictCommand.js';
 import { FastestCommand } from './commands/fastestCommand.js';
+import { HealthMonitor } from '../health/healthMonitor.js';
 
 interface PusherMessage {
   event?: string;
@@ -49,15 +52,29 @@ export class KickBot {
   private readonly botsByRoom = new Map<string, ChatroomInfo>();
   private readonly homeChannel: string;
   private readonly commandRegistry: CommandRegistry;
+  private readonly health: HealthMonitor;
+  private readonly appVersion: string;
+  private reconnectTimer?: NodeJS.Timeout;
+  private staleTimer?: NodeJS.Timeout;
+  private reconnectAttempts = 0;
+  private currentClusterIndex = 0;
+  private readonly staleCheckMs = 30000;
 
   constructor(config: EnvConfig) {
     this.config = config;
+    this.appVersion = this.resolveVersion();
     this.pusherKey = config.pusherKey || DEFAULT_PUSHER_KEY;
     this.headers = this.buildHeaders();
     const preferred = config.pusherCluster?.split(',').map((c) => c.trim()).filter(Boolean) ?? [];
     const merged = [...preferred, ...DEFAULT_CLUSTERS];
     this.clusterList = Array.from(new Set(merged));
     this.homeChannel = this.config.channel.toLowerCase();
+    this.health = new HealthMonitor({
+      appVersion: this.appVersion,
+      heartbeatMs: 45000,
+      staleAfterMs: 120000,
+      forceExitAfterMs: 300000,
+    });
     this.commandRegistry = new CommandRegistry();
     this.commandRegistry.register(new PingCommand());
     this.commandRegistry.register(new EloCommand());
@@ -74,6 +91,10 @@ export class KickBot {
   }
 
   async start(): Promise<void> {
+    await this.stop();
+    this.reconnectAttempts = 0;
+    this.currentClusterIndex = 0;
+    this.health.start();
     const infos = await this.fetchChatroomInfo();
     if (!infos.length) {
       throw new Error('No Kick channels configured. Set KICK_CHANNELS or KICK_CHANNEL.');
@@ -89,7 +110,36 @@ export class KickBot {
         chatroomId: binding.chatroomId,
       })),
     );
+    const channelSummary = this.bindings.map((binding) => `#${binding.channel}`).join(', ') || '(none)';
+    console.log(
+      `[STARTUP COMPLETE] v${this.appVersion} home=#${this.homeChannel} channels=${channelSummary} clusters=${this.clusterList.join(',')}`,
+    );
+    this.health.setConnectionState('connecting', 'opening-websocket');
     this.openWebSocket();
+  }
+
+  async stop(): Promise<void> {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    if (this.staleTimer) {
+      clearInterval(this.staleTimer);
+      this.staleTimer = undefined;
+    }
+    this.teardownSocket('stop');
+    this.health.stop();
+  }
+
+  private teardownSocket(context?: string): void {
+    if (!this.ws) return;
+    try {
+      this.ws.removeAllListeners();
+      this.ws.close();
+    } catch (err) {
+      console.error(`Failed to close WebSocket (${context || 'teardown'})`, err);
+    }
+    this.ws = undefined;
   }
 
   private buildHeaders(): RawAxiosRequestHeaders {
@@ -130,30 +180,134 @@ export class KickBot {
     }
   }
 
-  private openWebSocket(clusterIndex = 0): void {
-    const target = this.clusterList[clusterIndex];
+  private resolveVersion(): string {
+    try {
+      const pkgPath = path.resolve(process.cwd(), 'package.json');
+      const raw = fs.readFileSync(pkgPath, 'utf-8');
+      const pkg = JSON.parse(raw) as { version?: unknown };
+      const version = pkg?.version;
+      return typeof version === 'string' ? version : 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  private openWebSocket(): void {
+    const target = this.clusterList[this.currentClusterIndex];
     if (!target) {
       throw new Error('No Kick Pusher clusters available.');
     }
 
+    this.teardownSocket('reopen');
     const wsUrl = this.buildWsUrl(target);
-    this.ws = new WebSocket(wsUrl);
+    const attemptingReconnect = this.reconnectAttempts > 0;
+    console.log(
+      `[CONNECT] Opening WebSocket to ${target} (attempt ${this.reconnectAttempts + 1})`,
+    );
+    this.health.setConnectionState(
+      attemptingReconnect ? 'reconnecting' : 'connecting',
+      `cluster=${target}`,
+    );
 
-    this.ws.on('open', () => {
+    try {
+      this.ws = new WebSocket(wsUrl);
+    } catch (err) {
+      console.error('Failed to initiate WebSocket:', err);
+      this.health.recordError('ws-init-failed');
+      this.scheduleReconnect('construct-error');
+      return;
+    }
+
+    const socket = this.ws;
+    socket.once('open', () => {
       console.log('Connected to Kick chat, subscribing...');
+      this.reconnectAttempts = 0;
+      this.health.setConnectionState('connected', `cluster=${target}`);
       this.subscribe();
     });
 
-    this.ws.on('close', (code) => {
-      console.warn(`WebSocket closed (${code}). Attempting reconnect...`);
-      setTimeout(() => this.openWebSocket((clusterIndex + 1) % this.clusterList.length), 1500);
+    socket.on('close', (code, reason) => {
+      const reasonText = typeof reason === 'string' ? reason : reason?.toString() || 'unknown';
+      console.warn(`WebSocket closed (${code}). Reason: ${reasonText}`);
+      this.health.setConnectionState('disconnected', `code=${code}`);
+      this.scheduleReconnect('close');
     });
 
-    this.ws.on('error', (err) => {
+    socket.on('error', (err) => {
       console.error('WebSocket error:', err);
+      this.health.recordError('ws-error');
+      this.scheduleReconnect('error');
     });
 
-    this.listenForMessages(this.ws);
+    socket.on('unexpected-response', (_req, res) => {
+      const status = res?.statusCode || 'unknown';
+      console.error(`WebSocket unexpected response: ${status}`);
+      this.health.recordError(`unexpected-response-${status}`);
+      this.scheduleReconnect('unexpected-response');
+    });
+
+    socket.on('ping', () => {
+      this.health.recordEvent('event');
+      socket.pong();
+    });
+
+    socket.on('pong', () => {
+      this.health.recordEvent('event');
+    });
+
+    this.listenForMessages(socket);
+    this.startStaleWatcher();
+  }
+
+  private scheduleReconnect(reason: string): void {
+    if (this.reconnectTimer) return;
+    // Backoff avoids tight reconnect loops if Kick chat is unavailable.
+    this.teardownSocket(reason);
+    this.reconnectAttempts += 1;
+    const delay = Math.min(30000, 1000 * 2 ** Math.min(this.reconnectAttempts - 1, 6));
+    const jitter = Math.floor(Math.random() * 500);
+    const waitMs = delay + jitter;
+    this.currentClusterIndex = (this.currentClusterIndex + 1) % this.clusterList.length;
+    const targetCluster = this.clusterList[this.currentClusterIndex];
+    this.health.markReconnect(this.reconnectAttempts, waitMs, reason);
+    console.warn(
+      `[RECONNECT] ${reason}; attempt #${this.reconnectAttempts} in ${waitMs}ms (next cluster=${targetCluster})`,
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      try {
+        this.openWebSocket();
+      } catch (err) {
+        console.error('Reconnect attempt failed fatally:', err);
+        process.exit(1);
+      }
+    }, waitMs);
+  }
+
+  private startStaleWatcher(): void {
+    if (this.staleTimer) {
+      clearInterval(this.staleTimer);
+    }
+    this.staleTimer = setInterval(() => {
+      const snapshot = this.health.getSnapshot();
+      if (this.health.shouldForceExit()) {
+        console.error('Bot unhealthy for too long; exiting for restart.');
+        process.exit(1);
+      }
+      // Force reconnect if we stop seeing traffic to avoid silent dead sockets.
+      if (this.health.isStale() && !this.reconnectTimer) {
+        console.warn('Connection stale, forcing reconnect.');
+        this.scheduleReconnect('stale');
+        return;
+      }
+      if (
+        (snapshot.state === 'disconnected' || snapshot.state === 'error') &&
+        !this.reconnectTimer
+      ) {
+        console.warn('Detected disconnected state, attempting reconnect.');
+        this.scheduleReconnect('state-disconnected');
+      }
+    }, this.staleCheckMs);
   }
 
   private buildWsUrl(target: string): string {
@@ -164,7 +318,10 @@ export class KickBot {
   }
 
   private subscribe(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn('Cannot subscribe: WebSocket not open.');
+      return;
+    }
     if (!this.bindings.length) return;
     for (const binding of this.bindings) {
       this.subscribeBinding(binding);
@@ -182,27 +339,40 @@ export class KickBot {
 
     for (const channel of channels) {
       console.log(`Subscribing to ${channel}`);
-      this.ws.send(
-        JSON.stringify({
-          event: 'pusher:subscribe',
-          data: { channel, auth: '' },
-        }),
-      );
+      try {
+        this.ws.send(
+          JSON.stringify({
+            event: 'pusher:subscribe',
+            data: { channel, auth: '' },
+          }),
+        );
+      } catch (err) {
+        console.error(`Failed to subscribe to ${channel}`, err);
+        this.scheduleReconnect('subscribe-failed');
+        return;
+      }
     }
   }
 
   private listenForMessages(ws: WebSocket): void {
-    ws.on('message', async (payload: RawData) => {
+    ws.on('message', (payload: RawData) => {
       const raw = typeof payload === 'string' ? payload : payload.toString();
       let message: PusherMessage;
       try {
         message = JSON.parse(raw);
-      } catch {
+      } catch (err) {
+        console.warn('Dropping malformed WebSocket payload', err);
         return;
       }
 
+      this.health.recordEvent('event');
+
       if (message.event === 'pusher:ping') {
-        ws.send(JSON.stringify({ event: 'pusher:pong', data: {} }));
+        try {
+          ws.send(JSON.stringify({ event: 'pusher:pong', data: {} }));
+        } catch (err) {
+          console.error('Failed to respond to ping', err);
+        }
         return;
       }
 
@@ -220,7 +390,10 @@ export class KickBot {
         message.event === 'App\\Events\\ChatMessageEvent' ||
         message.event === 'App\\Events\\MessageSentEvent'
       ) {
-        await this.processChatEvent(message);
+        Promise.resolve(this.processChatEvent(message)).catch((err) => {
+          console.error('Failed to process chat event:', err);
+          this.health.recordError('chat-event-failed');
+        });
       }
     });
   }
@@ -241,6 +414,7 @@ export class KickBot {
       console.log('[ROUTE]', chatroomKey, '→ bot exists:', Boolean(binding));
     }
     if (!binding) return;
+    this.health.recordEvent('message');
     if (sender.toLowerCase() === this.config.botUsername.toLowerCase()) return;
 
     let handled = false;
@@ -335,6 +509,7 @@ export class KickBot {
         withCredentials: true,
         xsrfCookieName: 'XSRF-TOKEN',
         xsrfHeaderName: 'X-XSRF-TOKEN',
+        timeout: 8000,
       },
     );
   }
@@ -371,12 +546,15 @@ export class KickBot {
     if (!username || !username.trim()) return null;
     const slug = username.trim().toLowerCase();
     const url = `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
     try {
       const response = await fetch(url, {
         headers: {
           Accept: 'application/json',
           'User-Agent': 'kickmcsr-bot/1.0',
         },
+        signal: controller.signal,
       });
       if (!response.ok) {
         console.error('fetchChannelInfo failed for', slug, response.status);
@@ -395,6 +573,8 @@ export class KickBot {
     } catch (err) {
       console.error('fetchChannelInfo failed for', slug, err);
       return null;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

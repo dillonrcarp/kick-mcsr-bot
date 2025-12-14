@@ -1,0 +1,16 @@
+{
+  "appVersion": "0.3.0",
+  "state": "connected",
+  "status": "ok",
+  "startedAt": 1765722104765,
+  "lastHeartbeatAt": 1765722161548,
+  "lastEventAt": 1765722161548,
+  "lastMessageAt": 1765722161548,
+  "lastConnectAttemptAt": 1765722105351,
+  "lastConnectAt": 1765722105535,
+  "lastErrorAt": null,
+  "reconnectAttempts": 0,
+  "nextRetryInMs": null,
+  "stale": false,
+  "info": "event-received"
+}
