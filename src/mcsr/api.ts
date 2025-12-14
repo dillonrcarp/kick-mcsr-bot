@@ -16,6 +16,7 @@ export interface PlayerSummary extends Record<string, unknown> {
   elo?: number;
   rating?: number;
   mmr?: number;
+  rank_score?: number;
   peak_elo?: number;
   peakElo?: number;
   highest_elo?: number;
@@ -26,6 +27,91 @@ export interface PlayerSummary extends Record<string, unknown> {
   leaderboard_rank?: number;
   overall_rank?: number;
   statistics?: Record<string, any>;
+}
+
+export interface LeaderboardEntry {
+  name: string;
+  uuid?: string;
+  elo?: number;
+  rank?: number;
+}
+
+export async function getTopLeaderboard(limit = 1): Promise<LeaderboardEntry | null> {
+  const url = `${apiBase()}/leaderboard?limit=${Math.max(1, limit)}`;
+  const { data } = await axios.get(url, { timeout: 8000 });
+  const payload = data?.data ?? data;
+  const list: any[] = Array.isArray(payload?.users) ? payload.users : Array.isArray(payload) ? payload : [];
+  if (!list.length) return null;
+  const entry = list[0];
+  const name = pickString(entry?.nickname, entry?.username, entry?.name, entry?.player) ?? 'Unknown';
+  const elo = pickNumber(entry?.eloRate, entry?.elo, entry?.rating, entry?.mmr, entry?.rank_score);
+  const rank = pickNumber(
+    entry?.eloRank,
+    entry?.global_rank,
+    entry?.rank,
+    entry?.position,
+    entry?.leaderboard_rank,
+    entry?.overall_rank,
+  );
+  return { name, elo, rank, uuid: entry?.uuid ? String(entry.uuid) : undefined };
+}
+
+export interface RecordLeaderboardEntry {
+  rank?: number;
+  season?: number;
+  matchId?: number;
+  timeMs?: number;
+  dateMs?: number;
+  player: {
+    name: string;
+    uuid?: string;
+    elo?: number;
+    rank?: number;
+  };
+}
+
+export interface RecordLeaderboardParams {
+  season?: number;
+  distinct?: boolean;
+  limit?: number;
+}
+
+export async function getTopRecordLeaderboard(params: RecordLeaderboardParams = {}): Promise<RecordLeaderboardEntry | null> {
+  const limit = Math.max(1, params.limit ?? 1);
+  const season = params.season;
+  const distinct = params.distinct ? 'true' : undefined;
+  const url = `${apiBase()}/record-leaderboard`;
+  const { data } = await axios.get(url, {
+    timeout: 8000,
+    params: {
+      season,
+      distinct,
+      limit,
+    },
+  });
+  const payload = data?.data ?? data;
+  const list: any[] = Array.isArray(payload) ? payload : [];
+  if (!list.length) return null;
+  const entry = list[0];
+  const user = entry?.user ?? {};
+  const name = pickString(user?.nickname, user?.username, user?.name, user?.player) ?? 'Unknown';
+  const elo = pickNumber(user?.eloRate, user?.elo, user?.rating, user?.mmr, user?.rank_score);
+  const rank = pickNumber(user?.eloRank, user?.rank, user?.global_rank, user?.leaderboard_rank);
+  const timeMs = pickNumber(entry?.time, entry?.time_ms, entry?.recordTime, entry?.record_time);
+  const dateMs = normalizeTimestampMs(entry?.date) ?? undefined;
+  return {
+    rank: pickNumber(entry?.rank),
+    season: pickNumber(entry?.season),
+    matchId: pickNumber(entry?.id, entry?.match_id, entry?.matchId),
+    timeMs,
+    dateMs,
+    player: {
+      name,
+      uuid: user?.uuid ? String(user.uuid) : undefined,
+      elo,
+      rank,
+    },
+  };
 }
 
 export async function getPlayerSummary(username: string): Promise<PlayerSummary | null> {
