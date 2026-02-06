@@ -1,5 +1,7 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getRecentWindowStats } from '../../mcsr/api.js';
+import { LINK_HINT_TEXT } from '../../commands/commandSyntax.js';
+import { formatMinutesSeconds } from './formatUtils.js';
 import { resolveSinglePlayerTarget } from './targetResolver.js';
 
 export class MCSRTodayCommand implements ChatCommand {
@@ -24,8 +26,8 @@ export class MCSRTodayCommand implements ChatCommand {
         return;
       }
 
-      const bestText = formatClock(stats.bestWinMs);
-      const avgText = formatClock(stats.averageWinMs);
+      const bestText = formatMinutesSeconds(stats.bestWinMs, { rounding: 'round' }) ?? 'N/A';
+      const avgText = formatMinutesSeconds(stats.averageWinMs, { rounding: 'round' }) ?? 'N/A';
       const eloText = formatEloDelta(stats.eloDelta);
       const matches = Math.max(1, stats.matches);
       const winrate = Math.round((stats.wins / matches) * 100);
@@ -39,18 +41,10 @@ export class MCSRTodayCommand implements ChatCommand {
 
       await ctx.reply(`◆ ${stats.player} • ${segments.join(' • ')}`);
     } catch (err) {
-      console.error('Failed to fetch last-24h stats for', target, err);
-      await ctx.reply(`Could not fetch last-24h stats for ${target}. Try again or link with !link MinecraftUsername.`);
+      console.error('Failed to fetch last-12h stats for', target, err);
+      await ctx.reply(`Could not fetch last-12h stats for ${target}. Try again or ${LINK_HINT_TEXT}.`);
     }
   }
-}
-
-function formatClock(ms?: number): string {
-  if (!Number.isFinite(ms)) return 'N/A';
-  const totalSeconds = Math.max(0, Math.round(Number(ms) / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 function formatEloDelta(delta: number): string {

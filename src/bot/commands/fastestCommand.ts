@@ -1,5 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getTopRecordLeaderboard, getPlayerAverage, getPlayerSummary } from '../../mcsr/api.js';
+import { formatMinutesSeconds, pickNumber } from './formatUtils.js';
 
 export class FastestCommand implements ChatCommand {
   name = 'mcsrwr';
@@ -20,9 +21,9 @@ export class FastestCommand implements ChatCommand {
         getPlayerSummary(top.player.name),
       ]);
 
-      const fastest = formatRaceTime(top.timeMs ?? avg?.personalBestMs);
+      const fastest = formatMinutesSeconds(top.timeMs ?? avg?.personalBestMs) ?? 'N/A';
       const dateText = formatDate(top.dateMs);
-      const avgText = formatRaceTime(avg?.averageMs);
+      const avgText = formatMinutesSeconds(avg?.averageMs) ?? 'N/A';
       const parts: string[] = [];
       parts.push(dateText ? `Fastest: ${fastest} (${dateText})` : `Fastest: ${fastest}`);
       if (avgText !== 'N/A') parts.push(`Avg: ${avgText}`);
@@ -60,15 +61,6 @@ export class FastestCommand implements ChatCommand {
   }
 }
 
-function formatRaceTime(ms?: number | null): string {
-  if (!Number.isFinite(ms)) return 'N/A';
-  const totalMs = Math.max(0, Math.floor(Number(ms)));
-  const totalSeconds = Math.floor(totalMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-}
-
 function formatDate(ms?: number | null): string | null {
   if (!Number.isFinite(ms)) return null;
   const d = new Date(Number(ms));
@@ -76,15 +68,4 @@ function formatDate(ms?: number | null): string | null {
   const day = d.getUTCDate();
   const year = d.getUTCFullYear();
   return `${month} ${day}, ${year}`;
-}
-
-function pickNumber(...values: Array<number | string | null | undefined>): number | undefined {
-  for (const value of values) {
-    if (value === null || value === undefined) continue;
-    const num = typeof value === 'string' ? Number(value) : value;
-    if (Number.isFinite(num)) {
-      return Number(num);
-    }
-  }
-  return undefined;
 }

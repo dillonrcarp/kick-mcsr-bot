@@ -30,7 +30,8 @@ Kick chat bot with pluggable commands for MCSR Ranked stats.
 
 ## Commands
 
-Commands use the `+` prefix (they also respond to `!` for compatibility).
+Commands use the `+` prefix.
+Legacy note: `!` still works as a compatibility fallback.
 
 | Command | Aliases | Description |
 | --- | --- | --- |
@@ -45,11 +46,11 @@ Commands use the `+` prefix (they also respond to `!` for compatibility).
 | `+mcsrwr` | — | #1 record leaderboard entry with PB, avg, Elo/rank. |
 | `+predict <p1> <p2>` | `+win` | Predict likely winner using recent ranked matches. |
 | `+link <mcName>` | — | Link your Kick username to a Minecraft username. |
-| `+unlink [kickUser]` | — | Remove a linked Minecraft username. |
+| `+unlink` | — | Remove your own linked Minecraft username. |
 | `+mcsrhelp [command]` | `+mcsrcommands`, `+mcsr` | Lists all available MCSR commands. |
 
 Other bot controls:
-- `!join` (from the home channel) — ask the bot to join your channel.
-- `!leave` (from the home channel) — disconnect the bot from a channel.
+- `+join` (from the home channel) — ask the bot to join your channel.
+- `+leave` (from the home channel) — disconnect the bot from a channel.
 
-Use `+mcsrhelp` to see the latest command roster and descriptions pulled directly from the registry. Custom commands can be added by creating a module under `src/bot/commands` and registering it inside `KickBot`.  
+Use `+mcsrhelp` to see the in-chat command summary. Custom commands can be added by creating a module under `src/bot/commands` and registering it inside `KickBot`.  

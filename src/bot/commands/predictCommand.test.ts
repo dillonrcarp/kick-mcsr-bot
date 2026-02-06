@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { PredictCommand } from './predictCommand.js';
+import { OWNER_LINK_TOOLTIP } from './targetResolver.js';
 import type { PlayerFeatureStats } from '../../mcsr/predictFeatures.js';
 import type { PredictionOutcome } from '../../mcsr/predictScore.js';
 import type { ChatCommandContext } from './commandRegistry.js';
@@ -35,6 +36,8 @@ describe('PredictCommand', () => {
     const command = new PredictCommand({
       fetchMatches: async () => [],
       computeFeatures: (_matches, player) => features[player] ?? null,
+      resolveOwnerTarget: async () => ({ name: 'owner', source: 'linked' }),
+      resolveSenderTarget: async () => ({ name: 'sender', source: 'linked' }),
       predict: ({ playerA, playerB }) =>
         ({
           winner: 'A',
@@ -71,6 +74,8 @@ describe('PredictCommand', () => {
     const command = new PredictCommand({
       fetchMatches: async () => [],
       computeFeatures: () => null,
+      resolveOwnerTarget: async () => null,
+      resolveSenderTarget: async () => null,
       predict: () => null as any,
       now: () => Date.now(),
     });
@@ -86,18 +91,20 @@ describe('PredictCommand', () => {
 
     await command.execute(ctx, []);
     assert.equal(replies.length, 1);
-    assert.ok(replies[0].toLowerCase().includes('usage'));
+    assert.equal(replies[0], OWNER_LINK_TOOLTIP);
   });
 
   it('fills playerA from channel when only one opponent is provided', async () => {
     const features: Record<string, PlayerFeatureStats> = {
-      chan: makeFeatures('chan'),
+      owner: makeFeatures('owner'),
       Opp: makeFeatures('Opp'),
     };
     const replies: string[] = [];
     const command = new PredictCommand({
       fetchMatches: async () => [],
       computeFeatures: (_matches, player) => features[player] ?? null,
+      resolveOwnerTarget: async () => ({ name: 'owner', source: 'linked' }),
+      resolveSenderTarget: async () => ({ name: 'sender', source: 'linked' }),
       predict: () =>
         ({
           winner: 'A',
@@ -123,7 +130,7 @@ describe('PredictCommand', () => {
 
     assert.equal(replies.length, 1);
     const response = replies[0];
-    assert.ok(response.includes('chan'));
+    assert.ok(response.includes('owner'));
     assert.ok(response.includes('Opp'));
   });
 });

@@ -1,14 +1,22 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { fetchUserMatches, RateLimitError } from '../../mcsr/api.js';
+import { LINK_HINT_TEXT } from '../../commands/commandSyntax.js';
 import { computePlayerFeatures, type PlayerFeatureStats } from '../../mcsr/predictFeatures.js';
 import { predictOutcome, type PredictionOutcome } from '../../mcsr/predictScore.js';
-import { getLinkedMcName } from '../../storage/linkStore.js';
+import {
+  OWNER_LINK_TOOLTIP,
+  SELF_LINK_TOOLTIP,
+  resolveChannelOwnerTarget,
+  resolveSenderTarget,
+} from './targetResolver.js';
 
 interface PredictDeps {
   fetchMatches: typeof fetchUserMatches;
   computeFeatures: typeof computePlayerFeatures;
   predict: typeof predictOutcome;
   now: () => number;
+  resolveOwnerTarget: typeof resolveChannelOwnerTarget;
+  resolveSenderTarget: typeof resolveSenderTarget;
 }
 
 interface ParsedArgs {
@@ -35,6 +43,8 @@ export class PredictCommand implements ChatCommand {
       computeFeatures: deps?.computeFeatures ?? computePlayerFeatures,
       predict: deps?.predict ?? predictOutcome,
       now: deps?.now ?? (() => Date.now()),
+      resolveOwnerTarget: deps?.resolveOwnerTarget ?? resolveChannelOwnerTarget,
+      resolveSenderTarget: deps?.resolveSenderTarget ?? resolveSenderTarget,
     };
   }
 
@@ -88,7 +98,7 @@ export class PredictCommand implements ChatCommand {
         return;
       }
       console.error('Predict command failed', err);
-      await ctx.reply('Could not fetch data to make a prediction. Check names or try again later.');
+      await ctx.reply(`Could not fetch data to make a prediction. Check names or ${LINK_HINT_TEXT}.`);
     }
   }
 
@@ -112,22 +122,27 @@ export class PredictCommand implements ChatCommand {
     let playerB: string | null = null;
 
     if (nameTokens.length >= 2) {
-      playerA = resolvePlayer(nameTokens[0], ctx.channel, ctx.username, 'owner');
-      playerB = resolvePlayer(nameTokens[1], ctx.channel, ctx.username, 'sender');
+      playerA = await this.resolvePlayer(ctx, nameTokens[0], 'owner');
+      playerB = await this.resolvePlayer(ctx, nameTokens[1], 'sender');
     } else if (nameTokens.length === 1) {
       // Assume single arg is opponent; fill playerA from channel owner/link.
-      playerA = resolvePlayer(undefined, ctx.channel, ctx.username, 'owner');
-      playerB = resolvePlayer(nameTokens[0], ctx.channel, ctx.username, 'sender');
+      playerA = await this.resolvePlayer(ctx, undefined, 'owner');
+      playerB = await this.resolvePlayer(ctx, nameTokens[0], 'sender');
     } else {
-      playerA = resolvePlayer(undefined, ctx.channel, ctx.username, 'owner');
-      playerB = resolvePlayer(undefined, ctx.channel, ctx.username, 'sender');
+      playerA = await this.resolvePlayer(ctx, undefined, 'owner');
+      playerB = await this.resolvePlayer(ctx, undefined, 'sender');
     }
 
-    if (!playerA || !playerB) {
+    if (!playerA) {
       return {
         ok: false,
-        message:
-          'Usage: !predict playerA playerB [matches] — use "me" for yourself. Defaults to channel vs sender when no names are provided.',
+        message: OWNER_LINK_TOOLTIP,
+      };
+    }
+    if (!playerB) {
+      return {
+        ok: false,
+        message: SELF_LINK_TOOLTIP,
       };
     }
 
@@ -144,30 +159,27 @@ export class PredictCommand implements ChatCommand {
       },
     };
   }
-}
 
-function resolvePlayer(
-  raw: string | undefined,
-  channel: string,
-  sender: string,
-  fallback: 'owner' | 'sender',
-): string | null {
-  const value = raw?.trim();
-  if (value && value.toLowerCase() === 'me') {
-    const linked = sender ? getLinkedMcName(sender) : undefined;
-    return linked ?? (sender ? sender : null);
+  private async resolvePlayer(
+    ctx: ChatCommandContext,
+    raw: string | undefined,
+    fallback: 'owner' | 'sender',
+  ): Promise<string | null> {
+    const value = raw?.trim();
+    if (value && value.toLowerCase() === 'me') {
+      const sender = await this.deps.resolveSenderTarget(ctx);
+      return sender?.name ?? null;
+    }
+    if (value) return value;
+
+    if (fallback === 'owner') {
+      const owner = await this.deps.resolveOwnerTarget(ctx);
+      return owner?.name ?? null;
+    }
+
+    const sender = await this.deps.resolveSenderTarget(ctx);
+    return sender?.name ?? null;
   }
-  if (value) return value;
-
-  if (fallback === 'owner') {
-    const linked = getLinkedMcName(channel);
-    if (linked) return linked;
-    return channel || null;
-  }
-
-  const linked = getLinkedMcName(sender);
-  if (linked) return linked;
-  return sender || null;
 }
 
 function formatPrediction(

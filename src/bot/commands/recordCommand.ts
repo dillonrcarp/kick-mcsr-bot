@@ -1,5 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getHeadToHead } from '../../mcsr/api.js';
+import { LINK_HINT_TEXT, usageText } from '../../commands/commandSyntax.js';
 import { OWNER_LINK_TOOLTIP, resolveChannelOwnerTarget } from './targetResolver.js';
 
 export class RecordCommand implements ChatCommand {
@@ -33,14 +34,14 @@ export class RecordCommand implements ChatCommand {
     }
 
     if (!playerOne || !playerTwo) {
-      await ctx.reply('Usage: +record player1 player2 (link with !link MinecraftUsername to auto-fill yours)');
+      await ctx.reply(`${usageText('record', 'player1 player2')} (single-name mode auto-fills channel owner)`);
       return;
     }
 
     try {
       const stats = await getHeadToHead(playerOne, playerTwo);
       if (!stats) {
-        await ctx.reply(`No head-to-head matches found for ${playerOne} and ${playerTwo}. Check spelling or link with !link MinecraftUsername.`);
+        await ctx.reply(`No head-to-head matches found for ${playerOne} and ${playerTwo}. Check spelling or ${LINK_HINT_TEXT}.`);
         return;
       }
 
@@ -70,7 +71,9 @@ export class RecordCommand implements ChatCommand {
       await ctx.reply(`◆ ${segments.join(' • ')}`);
     } catch (err) {
       console.error('Failed to fetch head-to-head record for', playerOne, playerTwo, err);
-      await ctx.reply('Could not fetch head-to-head record. Try again or verify names/linking with !link MinecraftUsername. Usage: +record player1 player2');
+      await ctx.reply(
+        `Could not fetch head-to-head record. Try again or verify names or ${LINK_HINT_TEXT}. ${usageText('record', 'player1 player2')}`,
+      );
     }
   }
 }

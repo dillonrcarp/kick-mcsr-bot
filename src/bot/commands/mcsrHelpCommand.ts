@@ -1,5 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { CommandRegistry } from './commandRegistry.js';
+import { commandLabel } from '../../commands/commandSyntax.js';
 
 export class MCSRHelpCommand implements ChatCommand {
   name = 'mcsrhelp';
@@ -10,9 +11,14 @@ export class MCSRHelpCommand implements ChatCommand {
   constructor(private readonly registry: CommandRegistry) {}
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
+    const elo = commandLabel('elo');
+    const lastmatch = commandLabel('lastmatch');
+    const today = commandLabel('today');
+    const link = commandLabel('link');
+    const join = commandLabel('join');
     const copy = [
       'MCSR Commands:',
-      '◆ +elo {player} ◆ +lastmatch {player} ◆ +today {player} • Show stats for last 12h ◆ +link {mcUsername} • Link your Kick username to a Minecraft username. ◆ +join • Invite this bot to your Kick channel by sending !join in kickmcsr\'s chat.',
+      `◆ ${elo} {player} ◆ ${lastmatch} {player} ◆ ${today} {player} • Show stats for last 12h ◆ ${link} {mcUsername} • Link your Kick username to a Minecraft username. ◆ ${join} • Invite this bot to your Kick channel by sending ${join} in kickmcsr's chat.`,
     ];
     await replyWithChunks(ctx, copy.join('\n'));
   }

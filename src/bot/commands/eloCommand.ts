@@ -1,5 +1,7 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getPlayerSummary } from '../../mcsr/api.js';
+import { LINK_HINT_TEXT } from '../../commands/commandSyntax.js';
+import { formatMinutesSeconds, pickNumber } from './formatUtils.js';
 import { resolveSinglePlayerTarget } from './targetResolver.js';
 
 export class EloCommand implements ChatCommand {
@@ -17,14 +19,14 @@ export class EloCommand implements ChatCommand {
       }
       const summary = await getPlayerSummary(resolved.name);
       if (!summary) {
-        await ctx.reply(`Could not fetch MCSR stats for ${resolved.name}. Check spelling or link with !link MinecraftUsername.`);
+        await ctx.reply(`Could not fetch MCSR stats for ${resolved.name}. Check spelling or ${LINK_HINT_TEXT}.`);
         return;
       }
       const response = buildStatsMessage(summary, resolved.name);
       await ctx.reply(response);
     } catch (err) {
       console.error('Failed to fetch MCSR stats for', ctx.username, err);
-      await ctx.reply('Could not fetch MCSR stats for this request. Try again or link with !link MinecraftUsername.');
+      await ctx.reply(`Could not fetch MCSR stats for this request. Try again or ${LINK_HINT_TEXT}.`);
     }
   }
 }
@@ -142,25 +144,8 @@ function buildStatsMessage(data: Record<string, any>, fallbackName: string): str
   return `◆ ${display} Stats: ${segments.join(' • ')}`;
 }
 
-function pickNumber(
-  ...values: Array<number | string | null | undefined>
-): number | undefined {
-  for (const value of values) {
-    if (value === null || value === undefined) continue;
-    const num = typeof value === 'string' ? Number(value) : value;
-    if (Number.isFinite(num)) {
-      return Number(num);
-    }
-  }
-  return undefined;
-}
-
 function formatMs(ms?: number | null): string | null {
-  if (!Number.isFinite(ms)) return null;
-  const totalSeconds = Math.floor(Number(ms) / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  return formatMinutesSeconds(ms, { invalid: null });
 }
 
 function computeAverageMs(stats: any): number | undefined {

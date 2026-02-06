@@ -1,5 +1,7 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getPlayerAverage } from '../../mcsr/api.js';
+import { LINK_HINT_TEXT } from '../../commands/commandSyntax.js';
+import { formatMinutesSeconds } from './formatUtils.js';
 import { resolveSinglePlayerTarget } from './targetResolver.js';
 
 export class AverageCommand implements ChatCommand {
@@ -19,13 +21,13 @@ export class AverageCommand implements ChatCommand {
     try {
       const stats = await getPlayerAverage(target);
       if (!stats) {
-        await ctx.reply(`No run data found for ${target}. Check spelling or link with !link MinecraftUsername.`);
+        await ctx.reply(`No run data found for ${target}. Check spelling or ${LINK_HINT_TEXT}.`);
         return;
       }
 
       const display = stats.player || target;
-      const avgText = formatRaceTime(stats.averageMs);
-      const pbText = formatRaceTime(stats.personalBestMs);
+      const avgText = formatMinutesSeconds(stats.averageMs) ?? 'N/A';
+      const pbText = formatMinutesSeconds(stats.personalBestMs) ?? 'N/A';
       const parts: string[] = [];
       parts.push(`Average: ${avgText}`);
       parts.push(`PB: ${pbText}`);
@@ -36,16 +38,7 @@ export class AverageCommand implements ChatCommand {
       await ctx.reply(`◆ ${display} ${parts.join(' • ')}`);
     } catch (err) {
       console.error('Failed to fetch average stats for', target, err);
-      await ctx.reply(`Could not fetch average time for ${target}. Try again or link with !link MinecraftUsername.`);
+      await ctx.reply(`Could not fetch average time for ${target}. Try again or ${LINK_HINT_TEXT}.`);
     }
   }
-}
-
-function formatRaceTime(ms: number): string {
-  if (!Number.isFinite(ms)) return 'N/A';
-  const totalMs = Math.max(0, Math.floor(ms));
-  const totalSeconds = Math.floor(totalMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }

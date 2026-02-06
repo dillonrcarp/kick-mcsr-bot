@@ -1,18 +1,24 @@
 import { getPlayerSummary } from '../../mcsr/api.js';
 import { getLinkedMcName } from '../../storage/linkStore.js';
+import { LINK_COMMAND_USAGE, LINK_SET_YOURS_TEXT } from '../../commands/commandSyntax.js';
 import type { ChatCommandContext } from './commandRegistry.js';
 
 export const OWNER_LINK_TOOLTIP =
-  'No channel-owner Minecraft account found. Channel owner should link their Minecraft username with !link MinecraftUsername.';
+  `No channel-owner Minecraft account found. Channel owner should link their Minecraft username with ${LINK_COMMAND_USAGE}.`;
 export const SELF_LINK_TOOLTIP =
-  'No linked account found for you. Use !link MinecraftUsername to set yours.';
+  `No linked account found for you. ${LINK_SET_YOURS_TEXT}`;
 
 type ResolvedNameSource = 'linked' | 'username';
 
-interface ResolvedName {
-  name: string;
-  source: ResolvedNameSource;
+interface ResolverDeps {
+  getLinkedMcName: (kickName: string) => string | undefined;
+  getPlayerSummary: (name: string) => Promise<Record<string, any> | null>;
 }
+
+const defaultDeps: ResolverDeps = {
+  getLinkedMcName,
+  getPlayerSummary,
+};
 
 export type SingleTargetSource =
   | 'explicit'
@@ -35,7 +41,9 @@ export type SingleTargetResolution =
 export async function resolveSinglePlayerTarget(
   ctx: ChatCommandContext,
   args: string[],
+  deps?: Partial<ResolverDeps>,
 ): Promise<SingleTargetResolution> {
+  const resolverDeps = withResolverDeps(deps);
   const arg = args?.[0]?.trim();
   const wantsSelf = arg?.toLowerCase() === 'me';
   const explicitTarget = arg && !wantsSelf ? arg : null;
@@ -45,7 +53,7 @@ export async function resolveSinglePlayerTarget(
   }
 
   if (wantsSelf) {
-    const sender = await resolveSenderTarget(ctx);
+    const sender = await resolveSenderTarget(ctx, resolverDeps);
     if (sender) {
       return {
         ok: true,
@@ -56,7 +64,7 @@ export async function resolveSinglePlayerTarget(
     return { ok: false, message: SELF_LINK_TOOLTIP };
   }
 
-  const owner = await resolveChannelOwnerTarget(ctx);
+  const owner = await resolveChannelOwnerTarget(ctx, resolverDeps);
   if (owner) {
     return {
       ok: true,
@@ -69,16 +77,18 @@ export async function resolveSinglePlayerTarget(
 
 export async function resolveChannelOwnerTarget(
   ctx: ChatCommandContext,
+  deps?: Partial<ResolverDeps>,
 ): Promise<{ name: string; source: ResolvedNameSource } | null> {
+  const resolverDeps = withResolverDeps(deps);
   const channelOwner = normalize(ctx.channel);
   if (!channelOwner) return null;
 
-  const ownerLinked = getLinkedMcName(channelOwner);
+  const ownerLinked = resolverDeps.getLinkedMcName(channelOwner);
   if (ownerLinked) {
     return { name: ownerLinked, source: 'linked' };
   }
 
-  const summary = await getPlayerSummary(channelOwner);
+  const summary = await resolverDeps.getPlayerSummary(channelOwner);
   if (summary) {
     return { name: channelOwner, source: 'username' };
   }
@@ -87,16 +97,18 @@ export async function resolveChannelOwnerTarget(
 
 export async function resolveSenderTarget(
   ctx: ChatCommandContext,
+  deps?: Partial<ResolverDeps>,
 ): Promise<{ name: string; source: ResolvedNameSource } | null> {
+  const resolverDeps = withResolverDeps(deps);
   const sender = normalize(ctx.username);
   if (!sender) return null;
 
-  const senderLinked = getLinkedMcName(sender);
+  const senderLinked = resolverDeps.getLinkedMcName(sender);
   if (senderLinked) {
     return { name: senderLinked, source: 'linked' };
   }
 
-  const summary = await getPlayerSummary(sender);
+  const summary = await resolverDeps.getPlayerSummary(sender);
   if (summary) {
     return { name: sender, source: 'username' };
   }
@@ -105,4 +117,11 @@ export async function resolveSenderTarget(
 
 function normalize(value?: string | null): string {
   return (value || '').trim();
+}
+
+function withResolverDeps(deps?: Partial<ResolverDeps>): ResolverDeps {
+  return {
+    getLinkedMcName: deps?.getLinkedMcName ?? defaultDeps.getLinkedMcName,
+    getPlayerSummary: deps?.getPlayerSummary ?? defaultDeps.getPlayerSummary,
+  };
 }

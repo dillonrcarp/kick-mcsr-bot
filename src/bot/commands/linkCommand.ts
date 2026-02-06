@@ -1,5 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { setLinkedMcName } from '../../storage/linkStore.js';
+import { usageText } from '../../commands/commandSyntax.js';
 
 export class LinkCommand implements ChatCommand {
   name = 'link';
@@ -10,7 +11,7 @@ export class LinkCommand implements ChatCommand {
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
     const mcName = args?.[0]?.trim();
     if (!mcName) {
-      await ctx.reply('Usage: !link MinecraftUsername');
+      await ctx.reply(usageText('link', 'MinecraftUsername'));
       return;
     }
 

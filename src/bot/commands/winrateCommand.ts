@@ -1,5 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getPlayerRecord } from '../../mcsr/api.js';
+import { LINK_HINT_TEXT } from '../../commands/commandSyntax.js';
 import { resolveSinglePlayerTarget } from './targetResolver.js';
 
 export class WinrateCommand implements ChatCommand {
@@ -19,7 +20,7 @@ export class WinrateCommand implements ChatCommand {
     try {
       const record = await getPlayerRecord(target);
       if (!record) {
-        await ctx.reply(`No match history found for ${target}. Check spelling or link with !link MinecraftUsername.`);
+        await ctx.reply(`No match history found for ${target}. Check spelling or ${LINK_HINT_TEXT}.`);
         return;
       }
       const displayName = record.displayName || target;
@@ -42,7 +43,7 @@ export class WinrateCommand implements ChatCommand {
       await ctx.reply(`◆ ${displayName} ${segments.join(' • ')}`);
     } catch (err) {
       console.error('Failed to fetch winrate for', target, err);
-      await ctx.reply(`Could not fetch winrate for ${target}. Try again or link with !link MinecraftUsername.`);
+      await ctx.reply(`Could not fetch winrate for ${target}. Try again or ${LINK_HINT_TEXT}.`);
     }
   }
 }

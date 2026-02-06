@@ -5,6 +5,7 @@ import axios, { type RawAxiosRequestHeaders } from 'axios';
 
 import { parseCommand } from '../commands/index.js';
 import type { ParsedCommand } from '../commands/index.js';
+import { SUPPORTED_COMMAND_PREFIXES } from '../commands/commandSyntax.js';
 import type { ChannelMapping, EnvConfig } from '../config/env.js';
 import {
   dedupeChannels,
@@ -450,7 +451,7 @@ export class KickBot {
       },
     };
 
-    const plusHandled = await this.commandRegistry.handleMessage(ctx, ['+', '!']);
+    const plusHandled = await this.commandRegistry.handleMessage(ctx, [...SUPPORTED_COMMAND_PREFIXES]);
     if (plusHandled) return;
 
     if (this.config.logChatEvents) {

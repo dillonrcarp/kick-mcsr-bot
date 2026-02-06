@@ -1,3 +1,5 @@
+import { PRIMARY_COMMAND_PREFIX } from '../../commands/commandSyntax.js';
+
 export interface ChatCommandContext {
   channel: string;
   username: string;
@@ -31,7 +33,10 @@ export class CommandRegistry {
     return this.commands.get(normalized);
   }
 
-  async handleMessage(ctx: ChatCommandContext, prefix: string | string[] = '+'): Promise<boolean> {
+  async handleMessage(
+    ctx: ChatCommandContext,
+    prefix: string | string[] = PRIMARY_COMMAND_PREFIX,
+  ): Promise<boolean> {
     const raw = ctx.message?.trim();
     if (!raw) return false;
 

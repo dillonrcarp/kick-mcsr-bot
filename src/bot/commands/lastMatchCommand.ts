@@ -1,5 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getLastMatch } from '../../mcsr/api.js';
+import { LINK_HINT_TEXT } from '../../commands/commandSyntax.js';
 import { resolveSinglePlayerTarget } from './targetResolver.js';
 
 export class LastMatchCommand implements ChatCommand {
@@ -19,7 +20,7 @@ export class LastMatchCommand implements ChatCommand {
     try {
       const match = await getLastMatch(target);
       if (!match || !match.playerA || !match.playerB) {
-        await ctx.reply(`No recent ranked matches found for ${target}. Check spelling or link with !link MinecraftUsername.`);
+        await ctx.reply(`No recent ranked matches found for ${target}. Check spelling or ${LINK_HINT_TEXT}.`);
         return;
       }
 
@@ -55,7 +56,7 @@ export class LastMatchCommand implements ChatCommand {
       await ctx.reply(`${header}\n${bodyParts.join(' • ')}`);
     } catch (err) {
       console.error('Failed to fetch last match data for', target ?? ctx.username, err);
-      await ctx.reply('Could not fetch last match data. Check names or link with !link MinecraftUsername.');
+      await ctx.reply(`Could not fetch last match data. Check names or ${LINK_HINT_TEXT}.`);
     }
   }
 }
