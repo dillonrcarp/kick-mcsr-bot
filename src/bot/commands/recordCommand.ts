@@ -1,6 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getHeadToHead } from '../../mcsr/api.js';
-import { getLinkedMcName } from '../../storage/linkStore.js';
+import { OWNER_LINK_TOOLTIP, resolveChannelOwnerTarget } from './targetResolver.js';
 
 export class RecordCommand implements ChatCommand {
   name = 'record';
@@ -9,16 +9,11 @@ export class RecordCommand implements ChatCommand {
   category = 'mcsr';
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
-    const channelOwner = (ctx.channel || '').trim();
-    const sender = (ctx.username || '').trim();
-    const ownerLinked = channelOwner ? getLinkedMcName(channelOwner) : undefined;
-    const senderLinked = sender ? getLinkedMcName(sender) : undefined;
-
     const [rawP1, rawP2] = args ?? [];
     const arg1 = rawP1?.trim();
     const arg2 = rawP2?.trim();
 
-    // If only one arg is provided, treat it as the opponent and fill playerOne from links/defaults.
+    // If only one arg is provided, treat it as the opponent and fill playerOne from channel owner.
     let playerOne: string | null;
     let playerTwo: string | null;
     if (arg1 && arg2) {
@@ -26,7 +21,12 @@ export class RecordCommand implements ChatCommand {
       playerTwo = arg2;
     } else if (arg1) {
       playerTwo = arg1;
-      playerOne = ownerLinked || senderLinked || sender || null;
+      const owner = await resolveChannelOwnerTarget(ctx);
+      if (!owner) {
+        await ctx.reply(OWNER_LINK_TOOLTIP);
+        return;
+      }
+      playerOne = owner.name;
     } else {
       playerOne = null;
       playerTwo = null;

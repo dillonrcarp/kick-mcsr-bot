@@ -1,6 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
-import { getLastMatch, getPlayerSummary } from '../../mcsr/api.js';
-import { getLinkedMcName } from '../../storage/linkStore.js';
+import { getLastMatch } from '../../mcsr/api.js';
+import { resolveSinglePlayerTarget } from './targetResolver.js';
 
 export class LastMatchCommand implements ChatCommand {
   name = 'lastmatch';
@@ -9,27 +9,12 @@ export class LastMatchCommand implements ChatCommand {
   category = 'mcsr';
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
-    const arg = args?.[0]?.trim();
-    const wantsSelf = arg?.toLowerCase() === 'me';
-    const explicitTarget = arg && !wantsSelf ? arg : null;
-
-    let target: string | null = explicitTarget ?? null;
-    let reason: 'self' | 'channel' | undefined;
-
-    if (!explicitTarget) {
-      const resolved = await resolveTarget(ctx, wantsSelf);
-      target = resolved.name;
-      reason = resolved.reason;
-    }
-
-    if (!target) {
-      if (reason === 'self') {
-        await ctx.reply('No linked account found for you. Use !link MinecraftUsername to set yours.');
-      } else {
-        await ctx.reply('No linked account found for this channel or user. Use !link MinecraftUsername to set yours.');
-      }
+    const resolved = await resolveSinglePlayerTarget(ctx, args);
+    if (!resolved.ok) {
+      await ctx.reply(resolved.message);
       return;
     }
+    const target = resolved.name;
 
     try {
       const match = await getLastMatch(target);
@@ -84,42 +69,6 @@ function formatSeedType(raw: string | undefined | null): string {
     .split(/\s+/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
-}
-
-interface ResolvedTarget {
-  name: string | null;
-  reason?: 'self' | 'channel';
-}
-
-async function resolveTarget(ctx: ChatCommandContext, wantsSelf: boolean): Promise<ResolvedTarget> {
-  const channelOwner = (ctx.channel || '').trim();
-  const sender = (ctx.username || '').trim();
-  const ownerLinked = channelOwner ? getLinkedMcName(channelOwner) : undefined;
-  const senderLinked = sender ? getLinkedMcName(sender) : undefined;
-
-  const validateSender = async (): Promise<string | null> => {
-    if (!sender) return null;
-    const summary = await getPlayerSummary(sender);
-    return summary ? sender : null;
-  };
-
-  if (wantsSelf) {
-    if (senderLinked) return { name: senderLinked };
-    const validated = await validateSender();
-    if (validated) return { name: validated };
-    return { name: null, reason: 'self' };
-  }
-
-  // No args: prefer channel owner link, then sender link, then sender validated.
-  if (!wantsSelf) {
-    if (ownerLinked) return { name: ownerLinked };
-    if (senderLinked) return { name: senderLinked };
-    const validated = await validateSender();
-    if (validated) return { name: validated };
-    return { name: null, reason: 'channel' };
-  }
-
-  return { name: null, reason: 'channel' };
 }
 
 function formatPlayerSegment(player: { name: string; rank?: number; eloBefore?: number; eloAfter?: number }): string {

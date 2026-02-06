@@ -1,6 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
-import { getRecentWindowStats, getPlayerSummary } from '../../mcsr/api.js';
-import { getLinkedMcName } from '../../storage/linkStore.js';
+import { getRecentWindowStats } from '../../mcsr/api.js';
+import { resolveSinglePlayerTarget } from './targetResolver.js';
 
 export class MCSRTodayCommand implements ChatCommand {
   name = 'mcsrtoday';
@@ -9,39 +9,14 @@ export class MCSRTodayCommand implements ChatCommand {
   category = 'mcsr';
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
-    const arg = args?.[0]?.trim();
-    const wantsSelf = arg?.toLowerCase() === 'me';
-    const explicitTarget = arg && !wantsSelf ? arg : null;
-
-    const channelOwner = (ctx.channel || '').trim();
-    const sender = (ctx.username || '').trim();
-    const ownerLinked = channelOwner ? getLinkedMcName(channelOwner) : undefined;
-    const senderLinked = sender ? getLinkedMcName(sender) : undefined;
-
-    let target = explicitTarget ?? null;
-    if (!target) {
-      if (wantsSelf) {
-        target = senderLinked || sender || null;
-      } else {
-        target = ownerLinked || senderLinked || sender || null;
-      }
-    }
-
-    if (!target) {
-      await ctx.reply('No linked account found for this channel or user. Use !link MinecraftUsername to set yours.');
+    const resolved = await resolveSinglePlayerTarget(ctx, args);
+    if (!resolved.ok) {
+      await ctx.reply(resolved.message);
       return;
     }
+    const target = resolved.name;
 
     try {
-      // Validate implicit sender fallback so we do not hammer the API with bad names.
-      if (!explicitTarget && !wantsSelf && !ownerLinked && !senderLinked && sender) {
-        const summary = await getPlayerSummary(sender);
-        if (!summary) {
-          await ctx.reply('No linked account found for this channel or user. Use !link MinecraftUsername to set yours.');
-          return;
-        }
-      }
-
       const twelveHoursMs = 12 * 60 * 60 * 1000;
       const stats = await getRecentWindowStats(target, twelveHoursMs);
       if (!stats) {

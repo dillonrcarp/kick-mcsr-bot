@@ -1,6 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getPlayerAverage } from '../../mcsr/api.js';
-import { getLinkedMcName } from '../../storage/linkStore.js';
+import { resolveSinglePlayerTarget } from './targetResolver.js';
 
 export class AverageCommand implements ChatCommand {
   name = 'average';
@@ -9,28 +9,12 @@ export class AverageCommand implements ChatCommand {
   category = 'mcsr';
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
-    const arg = args?.[0]?.trim();
-    const wantsSelf = arg?.toLowerCase() === 'me';
-    const explicitTarget = arg && !wantsSelf ? arg : null;
-
-    const channelOwner = (ctx.channel || '').trim();
-    const sender = (ctx.username || '').trim();
-    const ownerLinked = channelOwner ? getLinkedMcName(channelOwner) : undefined;
-    const senderLinked = sender ? getLinkedMcName(sender) : undefined;
-
-    let target = explicitTarget ?? null;
-    if (!target) {
-      if (wantsSelf) {
-        target = senderLinked || sender || null;
-      } else {
-        target = ownerLinked || senderLinked || sender || null;
-      }
-    }
-
-    if (!target) {
-      await ctx.reply('No linked account found for this channel or user. Use !link MinecraftUsername to set yours.');
+    const resolved = await resolveSinglePlayerTarget(ctx, args);
+    if (!resolved.ok) {
+      await ctx.reply(resolved.message);
       return;
     }
+    const target = resolved.name;
 
     try {
       const stats = await getPlayerAverage(target);

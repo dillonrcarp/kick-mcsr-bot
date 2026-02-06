@@ -1,6 +1,6 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getPlayerSummary } from '../../mcsr/api.js';
-import { getLinkedMcName } from '../../storage/linkStore.js';
+import { resolveSinglePlayerTarget } from './targetResolver.js';
 
 export class EloCommand implements ChatCommand {
   name = 'elo';
@@ -10,12 +10,12 @@ export class EloCommand implements ChatCommand {
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
     try {
-      const resolved = await resolveTarget(ctx, args);
-      if (!resolved) {
-        await ctx.reply('No linked account found for this channel or user. Use !link MinecraftUsername to set yours.');
+      const resolved = await resolveSinglePlayerTarget(ctx, args);
+      if (!resolved.ok) {
+        await ctx.reply(resolved.message);
         return;
       }
-      const summary = resolved.summary ?? (await getPlayerSummary(resolved.name));
+      const summary = await getPlayerSummary(resolved.name);
       if (!summary) {
         await ctx.reply(`Could not fetch MCSR stats for ${resolved.name}. Check spelling or link with !link MinecraftUsername.`);
         return;
@@ -27,46 +27,6 @@ export class EloCommand implements ChatCommand {
       await ctx.reply('Could not fetch MCSR stats for this request. Try again or link with !link MinecraftUsername.');
     }
   }
-}
-
-interface ResolvedTarget {
-  name: string;
-  summary?: Record<string, any> | null;
-}
-
-async function resolveTarget(ctx: ChatCommandContext, args: string[]): Promise<ResolvedTarget | null> {
-  const channelOwner = (ctx.channel || '').trim();
-  const sender = (ctx.username || '').trim();
-  const arg = args?.[0]?.trim();
-  const wantsSelf = arg?.toLowerCase() === 'me';
-
-  // Explicit target other than "me"
-  if (arg && !wantsSelf) {
-    return { name: arg };
-  }
-
-  const ownerLinked = channelOwner ? getLinkedMcName(channelOwner) : undefined;
-  const senderLinked = sender ? getLinkedMcName(sender) : undefined;
-
-  // If owner linked and user asked for "me", honor sender instead.
-  if (wantsSelf) {
-    if (senderLinked) return { name: senderLinked };
-    if (sender) {
-      const summary = await getPlayerSummary(sender);
-      if (summary) return { name: sender, summary };
-    }
-    return null;
-  }
-
-  if (ownerLinked) return { name: ownerLinked };
-  if (senderLinked) return { name: senderLinked };
-
-  if (sender) {
-    const summary = await getPlayerSummary(sender);
-    if (summary) return { name: sender, summary };
-  }
-
-  return null;
 }
 
 function buildStatsMessage(data: Record<string, any>, fallbackName: string): string {

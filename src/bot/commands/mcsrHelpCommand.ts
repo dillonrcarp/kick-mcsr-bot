@@ -12,7 +12,7 @@ export class MCSRHelpCommand implements ChatCommand {
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
     const copy = [
       'MCSR Commands:',
-      '◆ !elo {player} • Show a player\'s MCSR stats. ◆ !lastmatch {player} • Show most recent ranked match stats for player. ◆ !link {mcUsername} • Link your Kick username to a Minecraft username. ◆ !join • Invite this bot to your Kick channel by sending !join in kickmcsr\'s chat.',
+      '◆ +elo {player} ◆ +lastmatch {player} ◆ +today {player} • Show stats for last 12h ◆ +link {mcUsername} • Link your Kick username to a Minecraft username. ◆ +join • Invite this bot to your Kick channel by sending !join in kickmcsr\'s chat.',
     ];
     await replyWithChunks(ctx, copy.join('\n'));
   }
