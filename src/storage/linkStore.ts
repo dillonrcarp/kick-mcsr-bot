@@ -24,6 +24,9 @@ function loadFromDisk(): LinkMap {
       return {};
     }
     const raw = fs.readFileSync(FILE_PATH, 'utf-8');
+    if (!raw || !raw.trim()) {
+      return {};
+    }
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return {};
     const map: LinkMap = {};
