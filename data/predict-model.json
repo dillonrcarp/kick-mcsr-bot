@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "createdAt": "2026-02-06T04:38:32.733Z",
+  "features": [
+    "winrate_delta",
+    "recency_winrate_delta",
+    "avg_elo_delta",
+    "avg_opponent_elo_delta",
+    "current_streak_delta",
+    "best_streak_delta",
+    "sample_log_ratio"
+  ],
+  "intercept": -0.012626741828941034,
+  "weights": {
+    "winrate_delta": 0.245066740680016,
+    "recency_winrate_delta": 0.24079068587619057,
+    "avg_elo_delta": 0.20994086866697353,
+    "avg_opponent_elo_delta": 0.12991587884253616,
+    "current_streak_delta": 0.20496136384329708,
+    "best_streak_delta": 0.12253337034000798,
+    "sample_log_ratio": 0
+  },
+  "calibration": {
+    "a": 1.0221253259664214,
+    "b": 0.00031412360794481583
+  },
+  "training": {
+    "sampleCount": 200,
+    "trainCount": 160,
+    "testCount": 40,
+    "heuristic": {
+      "testBrier": 0.35131145718558787,
+      "testLogLoss": 0.9930130616682259
+    },
+    "trained": {
+      "testBrier": 0.2835899581724858,
+      "testLogLoss": 0.766531383656151
+    }
+  }
+}

@@ -1,0 +1,238 @@
+{
+  "players": [
+    "Infume",
+    "edcr",
+    "doogile",
+    "ANJOUU",
+    "Feinberg",
+    "v_strid",
+    "nahhann",
+    "Watermelon1708",
+    "ulsah1n",
+    "KenanKardes",
+    "7rowl",
+    "okrzej_",
+    "BadGamer",
+    "BeefSalad",
+    "steez",
+    "hackingnoises",
+    "TUDORULE",
+    "BlazeMind",
+    "Ancoboyy",
+    "meebie",
+    "silverrruns",
+    "Aquacorde",
+    "woofdoggo_",
+    "vorbh",
+    "AutomattPLUS",
+    "bing_pigs",
+    "paukll",
+    "amar1y",
+    "dolqhin",
+    "yjako",
+    "lowk3y_",
+    "retropog",
+    "subdas",
+    "thecamo6",
+    "danterus",
+    "Erikfzf",
+    "iluappi",
+    "Oxidiot",
+    "Ranik_",
+    "nEmerald",
+    "HDMICables",
+    "TheLandSharkJeff",
+    "DARVY__X1",
+    "edqr",
+    "Lenged",
+    "romuxii",
+    "mukvl",
+    "boosterruns",
+    "Brunted",
+    "Yahiamice"
+  ],
+  "consideredMatches": 338,
+  "eligibleMatches": 87,
+  "samples": 87,
+  "trainSamples": 69,
+  "testSamples": 18,
+  "skipped": {
+    "missingParticipants": 968,
+    "missingWinner": 9,
+    "missingHistory": 251,
+    "modelUnavailable": 0
+  },
+  "raw": {
+    "train": {
+      "count": 69,
+      "accuracy": 0.5942028985507246,
+      "avgConfidence": 0.8569461843370947,
+      "brier": 0.28129989968471464,
+      "logLoss": 0.8102547428107807
+    },
+    "test": {
+      "count": 18,
+      "accuracy": 0.5,
+      "avgConfidence": 0.8592864326763014,
+      "brier": 0.2867510369967529,
+      "logLoss": 0.8095630758404783
+    },
+    "calibration": [
+      {
+        "start": 0,
+        "end": 0.1,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.1,
+        "end": 0.2,
+        "count": 1,
+        "meanPredicted": 0.13845166199829373,
+        "observedWinRate": 1
+      },
+      {
+        "start": 0.2,
+        "end": 0.3,
+        "count": 4,
+        "meanPredicted": 0.2507385165705448,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.3,
+        "end": 0.4,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.4,
+        "end": 0.5,
+        "count": 3,
+        "meanPredicted": 0.44981419780242216,
+        "observedWinRate": 1
+      },
+      {
+        "start": 0.5,
+        "end": 0.6,
+        "count": 5,
+        "meanPredicted": 0.5657297067068277,
+        "observedWinRate": 0.6
+      },
+      {
+        "start": 0.6,
+        "end": 0.7,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.7,
+        "end": 0.8,
+        "count": 2,
+        "meanPredicted": 0.7280892826049534,
+        "observedWinRate": 0.5
+      },
+      {
+        "start": 0.8,
+        "end": 0.9,
+        "count": 2,
+        "meanPredicted": 0.825884781304006,
+        "observedWinRate": 0.5
+      },
+      {
+        "start": 0.9,
+        "end": 1,
+        "count": 1,
+        "meanPredicted": 0.9003241520863168,
+        "observedWinRate": 0
+      }
+    ]
+  },
+  "calibrated": {
+    "test": {
+      "count": 18,
+      "accuracy": 0.5555555555555556,
+      "avgConfidence": 0.8592864326763014,
+      "brier": 0.25105378077577467,
+      "logLoss": 0.695403301002695
+    },
+    "calibration": [
+      {
+        "start": 0,
+        "end": 0.1,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.1,
+        "end": 0.2,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.2,
+        "end": 0.3,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.3,
+        "end": 0.4,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.4,
+        "end": 0.5,
+        "count": 9,
+        "meanPredicted": 0.4608955466143381,
+        "observedWinRate": 0.4444444444444444
+      },
+      {
+        "start": 0.5,
+        "end": 0.6,
+        "count": 9,
+        "meanPredicted": 0.536769971582292,
+        "observedWinRate": 0.5555555555555556
+      },
+      {
+        "start": 0.6,
+        "end": 0.7,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.7,
+        "end": 0.8,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.8,
+        "end": 0.9,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.9,
+        "end": 1,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      }
+    ],
+    "model": {
+      "a": 0.18067041944558954,
+      "b": -0.022573169916846884
+    }
+  }
+}

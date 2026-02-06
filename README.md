@@ -54,3 +54,23 @@ Other bot controls:
 - `+leave` (from the home channel) — disconnect the bot from a channel.
 
 Use `+mcsrhelp` to see the in-chat command summary. Custom commands can be added by creating a module under `src/bot/commands` and registering it inside `KickBot`.  
+
+## Prediction Backtest
+
+Run an offline backtest/calibration report for `+predict`:
+
+```bash
+npm run backtest:predict -- --players playerA,playerB,playerC --matches-per-player 150 --feature-limit 10 --min-history 10 --bins 10 --train-fraction 0.8
+```
+
+Optional:
+- `--players-file path/to/players.txt` (newline-delimited list)
+- `--json-out data/predict-backtest.json` (write machine-readable report)
+
+Train a model artifact (Phase 2):
+
+```bash
+npm run train:predict -- --players-file data/backtest-players-top100.txt --matches-per-player 60 --feature-limit 6 --min-history 5 --train-fraction 0.8
+```
+
+The trainer compares `trained` vs `heuristic` on test Brier/logloss and only writes `data/predict-model.json` when both improve (unless `--force-save` is used).

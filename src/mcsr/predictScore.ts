@@ -1,4 +1,6 @@
 import type { PlayerFeatureStats } from './predictFeatures.js';
+import { scoreModelProbabilityA } from './predictModel.js';
+import { getPredictModel } from './predictModelStore.js';
 
 export interface PredictionInput {
   playerA: PlayerFeatureStats;
@@ -20,16 +22,34 @@ const DEFAULT_TARGET_SAMPLE = 10;
 const DEFAULT_ANCHOR_MS = () => Date.now();
 
 export function predictOutcome(input: PredictionInput): PredictionOutcome | null {
+  const model = getPredictModel();
+  if (model) {
+    return predictOutcomeWithProbability(input, (playerA, playerB) =>
+      scoreModelProbabilityA(model, playerA, playerB),
+    );
+  }
+  return predictOutcomeHeuristic(input);
+}
+
+export function predictOutcomeHeuristic(input: PredictionInput): PredictionOutcome | null {
+  return predictOutcomeWithProbability(input, (playerA, playerB) => {
+    const scoreA = computeFormScore(playerA);
+    const scoreB = computeFormScore(playerB);
+    const delta = scoreA - scoreB;
+    return clamp(probFromDelta(delta), 0.05, 0.95);
+  });
+}
+
+function predictOutcomeWithProbability(
+  input: PredictionInput,
+  probabilityForA: (playerA: PlayerFeatureStats, playerB: PlayerFeatureStats) => number,
+): PredictionOutcome | null {
   const targetSample = Math.max(1, input.targetSample ?? DEFAULT_TARGET_SAMPLE);
   const anchor = input.anchorMs ?? DEFAULT_ANCHOR_MS();
   const { playerA, playerB } = input;
   if (!playerA || !playerB) return null;
 
-  const scoreA = computeFormScore(playerA);
-  const scoreB = computeFormScore(playerB);
-
-  const delta = scoreA - scoreB;
-  const probabilityA = clamp(probFromDelta(delta), 0.05, 0.95);
+  const probabilityA = clamp(probabilityForA(playerA, playerB), 0.05, 0.95);
   const probabilityB = 1 - probabilityA;
   const winner = probabilityA >= 0.5 ? 'A' : 'B';
   const probability = winner === 'A' ? probabilityA : probabilityB;

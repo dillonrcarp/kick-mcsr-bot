@@ -1,0 +1,288 @@
+{
+  "players": [
+    "Infume",
+    "edcr",
+    "doogile",
+    "ANJOUU",
+    "Feinberg",
+    "v_strid",
+    "nahhann",
+    "Watermelon1708",
+    "ulsah1n",
+    "KenanKardes",
+    "7rowl",
+    "okrzej_",
+    "BadGamer",
+    "BeefSalad",
+    "steez",
+    "hackingnoises",
+    "TUDORULE",
+    "BlazeMind",
+    "Ancoboyy",
+    "meebie",
+    "silverrruns",
+    "Aquacorde",
+    "woofdoggo_",
+    "vorbh",
+    "AutomattPLUS",
+    "bing_pigs",
+    "paukll",
+    "amar1y",
+    "dolqhin",
+    "yjako",
+    "lowk3y_",
+    "retropog",
+    "subdas",
+    "thecamo6",
+    "danterus",
+    "Erikfzf",
+    "iluappi",
+    "Oxidiot",
+    "Ranik_",
+    "nEmerald",
+    "HDMICables",
+    "TheLandSharkJeff",
+    "DARVY__X1",
+    "edqr",
+    "Lenged",
+    "romuxii",
+    "mukvl",
+    "boosterruns",
+    "Brunted",
+    "Yahiamice",
+    "JustAltoid",
+    "iKme_",
+    "90Tom",
+    "LilMinien",
+    "Traden",
+    "pavkin",
+    "suravil",
+    "darkk575",
+    "steezFemboy",
+    "egcr",
+    "sanjinhu",
+    "Finnitzko",
+    "kohout135",
+    "bdcr",
+    "dandannyboy",
+    "Airpodsz",
+    "b1ur_",
+    "takachaaaaaaan",
+    "rekrap2",
+    "JoomzMonkey",
+    "benemies",
+    "Tookannn",
+    "MaybeSoul",
+    "LEC666888",
+    "MrBudgiee",
+    "fruitberries",
+    "xFray_",
+    "cornflakesmcsr",
+    "dwoh",
+    "yeopgihoney",
+    "m1kky_",
+    "tucrack",
+    "loodlow",
+    "ValdarenMC",
+    "Mar1n",
+    "boywithcards",
+    "4antoo",
+    "shrddr",
+    "qam022",
+    "Casssual",
+    "Poomy1234",
+    "_Hypn0tic",
+    "drx6",
+    "Hinart",
+    "TofasDoganSLX",
+    "lookoutforya",
+    "fnhvr",
+    "awesomethank",
+    "wethr",
+    "Fairy330"
+  ],
+  "consideredMatches": 709,
+  "eligibleMatches": 173,
+  "samples": 173,
+  "trainSamples": 138,
+  "testSamples": 35,
+  "skipped": {
+    "missingParticipants": 1457,
+    "missingWinner": 37,
+    "missingHistory": 536,
+    "modelUnavailable": 0
+  },
+  "raw": {
+    "train": {
+      "count": 138,
+      "accuracy": 0.6231884057971014,
+      "avgConfidence": 0.8537929759297167,
+      "brier": 0.23789396789166029,
+      "logLoss": 0.6933917236065552
+    },
+    "test": {
+      "count": 35,
+      "accuracy": 0.4857142857142857,
+      "avgConfidence": 0.8745229299518977,
+      "brier": 0.3260088674540796,
+      "logLoss": 0.9372222784979644
+    },
+    "calibration": [
+      {
+        "start": 0,
+        "end": 0.1,
+        "count": 1,
+        "meanPredicted": 0.06203862636282315,
+        "observedWinRate": 1
+      },
+      {
+        "start": 0.1,
+        "end": 0.2,
+        "count": 3,
+        "meanPredicted": 0.1559504704138043,
+        "observedWinRate": 0.6666666666666666
+      },
+      {
+        "start": 0.2,
+        "end": 0.3,
+        "count": 7,
+        "meanPredicted": 0.23986190861618348,
+        "observedWinRate": 0.2857142857142857
+      },
+      {
+        "start": 0.3,
+        "end": 0.4,
+        "count": 4,
+        "meanPredicted": 0.35147660320389035,
+        "observedWinRate": 0.25
+      },
+      {
+        "start": 0.4,
+        "end": 0.5,
+        "count": 3,
+        "meanPredicted": 0.47230557146081975,
+        "observedWinRate": 0.6666666666666666
+      },
+      {
+        "start": 0.5,
+        "end": 0.6,
+        "count": 5,
+        "meanPredicted": 0.5581104007112254,
+        "observedWinRate": 0.6
+      },
+      {
+        "start": 0.6,
+        "end": 0.7,
+        "count": 6,
+        "meanPredicted": 0.6437436706415929,
+        "observedWinRate": 0.3333333333333333
+      },
+      {
+        "start": 0.7,
+        "end": 0.8,
+        "count": 2,
+        "meanPredicted": 0.7749426519455553,
+        "observedWinRate": 0.5
+      },
+      {
+        "start": 0.8,
+        "end": 0.9,
+        "count": 2,
+        "meanPredicted": 0.8497307203905724,
+        "observedWinRate": 0.5
+      },
+      {
+        "start": 0.9,
+        "end": 1,
+        "count": 2,
+        "meanPredicted": 0.9440982668682056,
+        "observedWinRate": 0
+      }
+    ]
+  },
+  "calibrated": {
+    "test": {
+      "count": 35,
+      "accuracy": 0.4857142857142857,
+      "avgConfidence": 0.8745229299518977,
+      "brier": 0.28257531054250357,
+      "logLoss": 0.7687982885761108
+    },
+    "calibration": [
+      {
+        "start": 0,
+        "end": 0.1,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.1,
+        "end": 0.2,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.2,
+        "end": 0.3,
+        "count": 1,
+        "meanPredicted": 0.22265700717632314,
+        "observedWinRate": 1
+      },
+      {
+        "start": 0.3,
+        "end": 0.4,
+        "count": 10,
+        "meanPredicted": 0.35421428602429017,
+        "observedWinRate": 0.4
+      },
+      {
+        "start": 0.4,
+        "end": 0.5,
+        "count": 7,
+        "meanPredicted": 0.4562232487946178,
+        "observedWinRate": 0.42857142857142855
+      },
+      {
+        "start": 0.5,
+        "end": 0.6,
+        "count": 11,
+        "meanPredicted": 0.5517389446645408,
+        "observedWinRate": 0.45454545454545453
+      },
+      {
+        "start": 0.6,
+        "end": 0.7,
+        "count": 4,
+        "meanPredicted": 0.66708049258528,
+        "observedWinRate": 0.5
+      },
+      {
+        "start": 0.7,
+        "end": 0.8,
+        "count": 2,
+        "meanPredicted": 0.7893151892202779,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.8,
+        "end": 0.9,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      },
+      {
+        "start": 0.9,
+        "end": 1,
+        "count": 0,
+        "meanPredicted": 0,
+        "observedWinRate": 0
+      }
+    ],
+    "model": {
+      "a": 0.46354636917715863,
+      "b": 0.008720307761487389
+    }
+  }
+}
