@@ -3,11 +3,23 @@ import { getPlayerRecord } from '../../mcsr/api.js';
 import { LINK_HINT_TEXT } from '../../commands/commandSyntax.js';
 import { resolveSinglePlayerTarget } from './targetResolver.js';
 
+interface WinrateDeps {
+  getRecord: typeof getPlayerRecord;
+}
+
 export class WinrateCommand implements ChatCommand {
   name = 'winrate';
   aliases = ['wr'];
   description = 'Show total wins, losses, winrate, and FFR%.';
   category = 'mcsr';
+
+  private readonly deps: WinrateDeps;
+
+  constructor(deps?: Partial<WinrateDeps>) {
+    this.deps = {
+      getRecord: deps?.getRecord ?? getPlayerRecord,
+    };
+  }
 
   async execute(ctx: ChatCommandContext, args: string[]): Promise<void> {
     const resolved = await resolveSinglePlayerTarget(ctx, args);
@@ -18,7 +30,7 @@ export class WinrateCommand implements ChatCommand {
     const target = resolved.name;
 
     try {
-      const record = await getPlayerRecord(target);
+      const record = await this.deps.getRecord(target);
       if (!record) {
         await ctx.reply(`No match history found for ${target}. Check spelling or ${LINK_HINT_TEXT}.`);
         return;
@@ -38,6 +50,9 @@ export class WinrateCommand implements ChatCommand {
       }
       if (ffrText) {
         segments.push(`FF Rate ${ffrText}`);
+      }
+      if (record.longestWinStreak !== undefined) {
+        segments.push(`Longest Streak ${record.longestWinStreak}W`);
       }
 
       await ctx.reply(`◆ ${displayName} ${segments.join(' • ')}`);

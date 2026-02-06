@@ -1,5 +1,5 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
-import { getPlayerSummary } from '../../mcsr/api.js';
+import { extractPlayerWinStreaks, getPlayerSummary } from '../../mcsr/api.js';
 import { LINK_HINT_TEXT } from '../../commands/commandSyntax.js';
 import { formatMinutesSeconds, pickNumber } from './formatUtils.js';
 import { resolveSinglePlayerTarget } from './targetResolver.js';
@@ -31,7 +31,7 @@ export class EloCommand implements ChatCommand {
   }
 }
 
-function buildStatsMessage(data: Record<string, any>, fallbackName: string): string {
+export function buildStatsMessage(data: Record<string, any>, fallbackName: string): string {
   const display = data.nickname || data.username || data.name || fallbackName || 'Player';
   const rating = pickNumber(data.eloRate, data.elo, data.rating, data.rank_score, data.mmr);
   const peak = pickNumber(
@@ -97,6 +97,7 @@ function buildStatsMessage(data: Record<string, any>, fallbackName: string): str
     data.best_time,
   );
   const avgMs = computeAverageMs(statsRoot);
+  const streaks = extractPlayerWinStreaks(data);
 
   const segments: string[] = [];
 
@@ -121,6 +122,10 @@ function buildStatsMessage(data: Record<string, any>, fallbackName: string): str
     const total = wins + losses;
     const winrate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
     segments.push(`W/L: ${wins}/${losses} (${winrate}%)`);
+  }
+
+  if (streaks.longest !== undefined) {
+    segments.push(`Longest Streak ${streaks.longest}W`);
   }
 
   const totalMatches =

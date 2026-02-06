@@ -141,6 +141,103 @@ export async function getPlayerSummary(username: string): Promise<PlayerSummary 
   }
 }
 
+export interface PlayerWinStreaks {
+  current?: number;
+  longest?: number;
+}
+
+export function extractPlayerWinStreaks(summary: Record<string, any> | null | undefined): PlayerWinStreaks {
+  if (!summary || typeof summary !== 'object') return {};
+  const roots = resolveStreakRoots(summary);
+  const longest =
+    pickStreakFromRoots(roots, pickLongestWinStreakFromRoot) ??
+    findAchievementValue(summary, 'highestWinStreak');
+  const current =
+    pickStreakFromRoots(roots, pickCurrentWinStreakFromRoot) ??
+    findAchievementValue(summary, 'currentWinStreak');
+  return {
+    current,
+    longest,
+  };
+}
+
+function resolveStreakRoots(summary: Record<string, any>): Record<string, any>[] {
+  const stats = summary.statistics;
+  const roots = [
+    stats?.season,
+    stats?.total,
+    stats,
+    summary,
+  ];
+  return roots.filter((root): root is Record<string, any> => Boolean(root) && typeof root === 'object');
+}
+
+function pickStreakFromRoots(
+  roots: Record<string, any>[],
+  picker: (root: Record<string, any>) => number | undefined,
+): number | undefined {
+  for (const root of roots) {
+    const value = picker(root);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function pickLongestWinStreakFromRoot(root: Record<string, any>): number | undefined {
+  return pickNumber(
+    root?.highestWinStreak?.ranked,
+    root?.highestWinStreak,
+    root?.longestWinStreak?.ranked,
+    root?.longestWinStreak,
+    root?.bestWinStreak?.ranked,
+    root?.bestWinStreak,
+    root?.winStreak?.best?.ranked,
+    root?.winStreak?.best,
+    root?.streak?.best?.ranked,
+    root?.streak?.best,
+    root?.streakBest?.ranked,
+    root?.streakBest,
+    root?.highest_streak,
+  );
+}
+
+function pickCurrentWinStreakFromRoot(root: Record<string, any>): number | undefined {
+  return pickNumber(
+    root?.currentWinStreak?.ranked,
+    root?.currentWinStreak,
+    root?.winStreak?.current?.ranked,
+    root?.winStreak?.current,
+    root?.streak?.current?.ranked,
+    root?.streak?.current,
+    root?.currentStreak?.ranked,
+    root?.currentStreak,
+    root?.streakCurrent?.ranked,
+    root?.streakCurrent,
+  );
+}
+
+function findAchievementValue(summary: Record<string, any>, targetId: string): number | undefined {
+  const achievements = summary.achievements;
+  const pools: unknown[] = [
+    achievements?.display,
+    achievements?.total,
+    achievements,
+  ];
+
+  for (const pool of pools) {
+    if (!Array.isArray(pool)) continue;
+    for (const entry of pool) {
+      if (!entry || typeof entry !== 'object') continue;
+      const item = entry as Record<string, unknown>;
+      if (String(item.id ?? '').trim() !== targetId) continue;
+      const value = numberOrUndefined(item.value);
+      if (value !== undefined) return value;
+    }
+  }
+
+  return undefined;
+}
+
 export interface WeeklyRaceEntry {
   raceId: number;
   raceNumber: number;
@@ -1161,6 +1258,8 @@ export interface PlayerRecord {
   matches: number;
   ffr?: number;
   displayName?: string;
+  currentWinStreak?: number;
+  longestWinStreak?: number;
 }
 
 export async function getPlayerRecord(username: string): Promise<PlayerRecord | null> {
@@ -1176,6 +1275,7 @@ export async function getPlayerRecord(username: string): Promise<PlayerRecord | 
       payload.statistics?.total ||
       payload.statistics ||
       {};
+    const streaks = extractPlayerWinStreaks(payload as Record<string, any>);
     const displayName = payload.nickname || payload.username || payload.name || slug;
     const wins = numberOrUndefined(statsRoot?.wins?.ranked ?? statsRoot?.wins ?? statsRoot?.totalWins) ?? 0;
     const losses =
@@ -1201,6 +1301,8 @@ export async function getPlayerRecord(username: string): Promise<PlayerRecord | 
       matches,
       ffr,
       displayName,
+      currentWinStreak: streaks.current,
+      longestWinStreak: streaks.longest,
     };
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status;
