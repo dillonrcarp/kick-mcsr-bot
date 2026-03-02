@@ -15,9 +15,11 @@ export interface EnvConfig {
   logChatEvents: boolean;
   pusherKey?: string;
   pusherCluster?: string;
+  pusherHost?: string;
   xsrfToken?: string;
   sessionCookie?: string;
   extraCookies?: string;
+  cookieHeader?: string;
   channels: ChannelMapping[];
 }
 
@@ -63,9 +65,11 @@ export function loadEnv(): EnvConfig {
     logChatEvents: parseBool(process.env.LOG_CHAT_EVENTS),
     pusherKey: process.env.KICK_PUSHER_KEY?.trim(),
     pusherCluster: process.env.KICK_PUSHER_CLUSTER?.trim(),
+    pusherHost: process.env.KICK_PUSHER_HOST?.trim(),
     xsrfToken: process.env.KICK_XSRF_TOKEN?.trim(),
     sessionCookie: process.env.KICK_SESSION_COOKIE?.trim(),
     extraCookies: process.env.KICK_EXTRA_COOKIES?.trim(),
+    cookieHeader: process.env.KICK_COOKIE_HEADER?.trim(),
     channels: parseChannels(process.env.KICK_CHANNELS),
   };
 }

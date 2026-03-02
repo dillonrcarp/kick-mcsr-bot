@@ -37,12 +37,103 @@ interface PusherMessage {
 
 interface ChatroomInfo extends ChannelMapping {}
 
+interface ExtractedChatEvent {
+  data: Record<string, any> | null;
+  content: string | null;
+  contentField: string | null;
+  sender: string | null;
+  senderField: string | null;
+  chatroomId: number | null;
+  chatroomField: string | null;
+}
+
 const DEFAULT_PUSHER_KEY = 'eb707e3b98eae06e0046';
 const DEFAULT_CLUSTERS = ['us2', 'us1', 'us3', 'mt1'];
 const PUSHER_CLIENT = 'js';
 const PUSHER_VERSION = '8.4.0';
 const PUSHER_PROTOCOL = '7';
 const FALLBACK_CHATROOM_ID = 86176434;
+
+function parseMaybeJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function pickStringField(
+  candidates: Array<[field: string, value: unknown]>,
+): { value: string | null; field: string | null } {
+  for (const [field, value] of candidates) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    return { value: trimmed, field };
+  }
+  return { value: null, field: null };
+}
+
+function coerceChatroomId(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function parseChatroomFromChannel(channelName?: string | null): number | null {
+  if (!channelName) return null;
+  const match = channelName.match(/chatrooms\.(\d+)/) || channelName.match(/chatroom_(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+export function extractChatEvent(message: PusherMessage): ExtractedChatEvent {
+  const parsed = parseMaybeJson(message.data);
+  const data =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, any>)
+      : null;
+  const content = pickStringField([
+    ['content', data?.content],
+    ['message', data?.message],
+    ['text', data?.text],
+    ['body', data?.body],
+    ['msg', data?.msg],
+  ]);
+  const sender = pickStringField([
+    ['sender.username', data?.sender?.username],
+    ['sender.slug', data?.sender?.slug],
+    ['sender.name', data?.sender?.name],
+    ['senderUsername', data?.senderUsername],
+    ['username', data?.username],
+  ]);
+  const chatroomCandidates: Array<[field: string, value: unknown]> = [
+    ['chatroom_id', data?.chatroom_id],
+    ['chatroomId', data?.chatroomId],
+    ['chatroom.id', data?.chatroom?.id],
+    ['channel', parseChatroomFromChannel(message.channel)],
+  ];
+
+  let chatroomId: number | null = null;
+  let chatroomField: string | null = null;
+  for (const [field, value] of chatroomCandidates) {
+    const parsedId = coerceChatroomId(value);
+    if (parsedId === null) continue;
+    chatroomId = parsedId;
+    chatroomField = field;
+    break;
+  }
+
+  return {
+    data,
+    content: content.value,
+    contentField: content.field,
+    sender: sender.value,
+    senderField: sender.field,
+    chatroomId,
+    chatroomField,
+  };
+}
 
 export class KickBot {
   private readonly headers: RawAxiosRequestHeaders;
@@ -146,6 +237,28 @@ export class KickBot {
   }
 
   private buildHeaders(): RawAxiosRequestHeaders {
+    const cookieHeader = this.config.cookieHeader || this.buildCookieHeader();
+
+    const header: RawAxiosRequestHeaders = {
+      'User-Agent': 'kick-mcsr-bot/minimal',
+      Authorization: `Bearer ${this.decode(this.config.token)}`,
+      Cookie: cookieHeader,
+      Origin: 'https://kick.com',
+      Referer: `https://kick.com/${encodeURIComponent(this.config.channel)}`,
+      Accept: 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+    };
+
+    if (this.config.xsrfToken) {
+      header['X-XSRF-TOKEN'] = this.decode(this.config.xsrfToken);
+    }
+
+    return header;
+  }
+
+  private buildCookieHeader(): string {
     const cookies: string[] = [`session_token=${this.config.token}`];
     if (this.config.sessionCookie) {
       cookies.push(`kick_session=${this.config.sessionCookie}`);
@@ -156,23 +269,11 @@ export class KickBot {
     if (this.config.extraCookies) {
       cookies.push(this.config.extraCookies);
     }
+    return cookies.join('; ');
+  }
 
-    const header: RawAxiosRequestHeaders = {
-      'User-Agent': 'kick-mcsr-bot/minimal',
-      Authorization: `Bearer ${this.decode(this.config.token)}`,
-      Cookie: cookies.join('; '),
-      Origin: 'https://kick.com',
-      Referer: `https://kick.com/${encodeURIComponent(this.config.channel)}`,
-      Accept: 'application/json, text/plain, */*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Content-Type': 'application/json',
-    };
-
-    if (this.config.xsrfToken) {
-      header['X-XSRF-TOKEN'] = this.decode(this.config.xsrfToken);
-    }
-
-    return header;
+  private shouldLogVerboseChat(): boolean {
+    return this.config.debugChat || this.config.logChatEvents;
   }
 
   private decode(value: string): string {
@@ -207,6 +308,11 @@ export class KickBot {
     console.log(
       `[CONNECT] Opening WebSocket to ${target} (attempt ${this.reconnectAttempts + 1})`,
     );
+    if (!this.config.cookieHeader && (!this.config.sessionCookie || !this.config.xsrfToken)) {
+      console.warn(
+        '[AUTH WARNING] Write auth cookies are missing. Reading chat may work, but sending messages can fail with 403. Set KICK_SESSION_COOKIE and KICK_XSRF_TOKEN or KICK_COOKIE_HEADER.',
+      );
+    }
     this.health.setConnectionState(
       attemptingReconnect ? 'reconnecting' : 'connecting',
       `cluster=${target}`,
@@ -314,6 +420,9 @@ export class KickBot {
   }
 
   private buildWsUrl(target: string): string {
+    if (this.config.pusherHost) {
+      return `${this.config.pusherHost}/app/${this.pusherKey}?protocol=${PUSHER_PROTOCOL}&client=${PUSHER_CLIENT}&version=${PUSHER_VERSION}&flash=false`;
+    }
     if (target.startsWith('ws')) {
       return `${target}/app/${this.pusherKey}?protocol=${PUSHER_PROTOCOL}&client=${PUSHER_CLIENT}&version=${PUSHER_VERSION}&flash=false`;
     }
@@ -370,6 +479,18 @@ export class KickBot {
 
       this.health.recordEvent('event');
 
+      if (
+        this.config.debugChat &&
+        message.event &&
+        !['pusher:ping', 'pusher:pong', 'pusher:connection_established'].includes(message.event)
+      ) {
+        console.log('[WS EVENT]', {
+          event: message.event,
+          channel: message.channel || null,
+          dataType: typeof message.data,
+        });
+      }
+
       if (message.event === 'pusher:ping') {
         try {
           ws.send(JSON.stringify({ event: 'pusher:pong', data: {} }));
@@ -391,7 +512,8 @@ export class KickBot {
 
       if (
         message.event === 'App\\Events\\ChatMessageEvent' ||
-        message.event === 'App\\Events\\MessageSentEvent'
+        message.event === 'App\\Events\\MessageSentEvent' ||
+        message.event === 'App\\Events\\WhisperEvent'
       ) {
         Promise.resolve(this.processChatEvent(message)).catch((err) => {
           console.error('Failed to process chat event:', err);
@@ -403,22 +525,50 @@ export class KickBot {
 
   private async processChatEvent(message: PusherMessage): Promise<void> {
     if (!this.botsByRoom.size) return;
-    const data = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
-    const content = data?.content ?? data?.message;
-    const sender = data?.sender?.username || data?.senderUsername;
-    const rawChatroom = data?.chatroom_id ?? this.parseChatroom(message.channel);
-    const chatroomId =
-      rawChatroom !== undefined && rawChatroom !== null ? Number(rawChatroom) : null;
-    if (!content || !sender || chatroomId === null) return;
+    const extracted = extractChatEvent(message);
+    const { content, sender, chatroomId } = extracted;
+    if (!content || !sender || chatroomId === null) {
+      if (this.shouldLogVerboseChat()) {
+        console.warn('[CHAT DROP]', {
+          event: message.event || null,
+          channel: message.channel || null,
+          contentField: extracted.contentField,
+          senderField: extracted.senderField,
+          chatroomField: extracted.chatroomField,
+          hasData: Boolean(extracted.data),
+        });
+      }
+      return;
+    }
     const command = parseCommand(content);
     const chatroomKey = this.chatroomKey(chatroomId);
     const binding = this.botsByRoom.get(chatroomKey);
-    if (this.config.logChatEvents) {
-      console.log('[ROUTE]', chatroomKey, '→ bot exists:', Boolean(binding));
+    if (this.shouldLogVerboseChat()) {
+      console.log('[CHAT RX]', {
+        event: message.event || null,
+        channel: message.channel || null,
+        chatroomId,
+        chatroomField: extracted.chatroomField,
+        sender,
+        senderField: extracted.senderField,
+        content,
+        contentField: extracted.contentField,
+        parsedCommand: command?.name || null,
+        bindingChannel: binding?.channel || null,
+      });
     }
     if (!binding) return;
     this.health.recordEvent('message');
-    if (sender.toLowerCase() === this.config.botUsername.toLowerCase()) return;
+    if (sender.toLowerCase() === this.config.botUsername.toLowerCase()) {
+      if (this.config.debugChat) {
+        console.log('[CHAT IGNORE] Dropping self-authored message', {
+          channel: binding.channel,
+          sender,
+          content,
+        });
+      }
+      return;
+    }
 
     let handled = false;
     if (command?.name === 'join') {
@@ -444,6 +594,11 @@ export class KickBot {
           const data = (err as { response?: { data?: unknown } }).response?.data;
           const message = (err as Error)?.message;
           console.error('Failed to send reply', { status, data, message, channel: binding.channel });
+          if (this.isAuthenticationError(err)) {
+            console.error(
+              '[AUTH ERROR] Kick rejected message send as unauthenticated. Refresh KICK_TOKEN and set KICK_SESSION_COOKIE/KICK_XSRF_TOKEN or KICK_COOKIE_HEADER.',
+            );
+          }
           if (this.isModRequiredError(err)) {
             await this.notifyModRequirement(binding);
           }
@@ -452,7 +607,31 @@ export class KickBot {
     };
 
     const plusHandled = await this.commandRegistry.handleMessage(ctx, [...SUPPORTED_COMMAND_PREFIXES]);
-    if (plusHandled) return;
+    if (plusHandled) {
+      if (this.shouldLogVerboseChat() && command) {
+        console.log('[CMD OK]', {
+          channel: binding.channel,
+          chatroomId: binding.chatroomId,
+          sender,
+          name: command.name,
+          args: command.args,
+          raw: content,
+        });
+      }
+      return;
+    }
+
+    if (command) {
+      console.warn('[CMD MISS]', {
+        channel: binding.channel,
+        chatroomId: binding.chatroomId,
+        sender,
+        name: command.name,
+        args: command.args,
+        raw: content,
+      });
+      return;
+    }
 
     if (this.config.logChatEvents) {
       console.log(`[CHAT EVENT][#${binding.channel}] ${sender}: ${content}`);
@@ -460,9 +639,7 @@ export class KickBot {
   }
 
   private parseChatroom(channelName?: string | null): number | null {
-    if (!channelName) return null;
-    const match = channelName.match(/chatrooms\.(\d+)/) || channelName.match(/chatroom_(\d+)/);
-    return match ? Number(match[1]) : null;
+    return parseChatroomFromChannel(channelName);
   }
 
   private chatroomKey(chatroomId: number): string {
@@ -504,17 +681,30 @@ export class KickBot {
       type: 'message',
     });
 
-    await axios.post(
-      url,
-      payload(content),
-      {
+    if (this.config.debugChat) {
+      console.log('[SEND]', {
+        chatroomId,
+        content,
+      });
+    }
+
+    try {
+      await axios.post(url, payload(content), {
         headers: this.headers,
         withCredentials: true,
         xsrfCookieName: 'XSRF-TOKEN',
         xsrfHeaderName: 'X-XSRF-TOKEN',
         timeout: 8000,
-      },
-    );
+      });
+    } catch (err) {
+      if (this.config.debugChat) {
+        const status = (err as { response?: { status?: number } }).response?.status;
+        const data = (err as { response?: { data?: unknown } }).response?.data;
+        const message = (err as Error)?.message;
+        console.error('[SEND FAILED]', { chatroomId, status, data, message, content });
+      }
+      throw err;
+    }
   }
 
   private async fetchChatroomInfo(): Promise<ChatroomInfo[]> {
@@ -683,6 +873,13 @@ export class KickBot {
       return response.data.message.toUpperCase().includes('MAX_SPECIAL_CHARS');
     }
     return false;
+  }
+
+  private isAuthenticationError(err: unknown): boolean {
+    const response = (err as { response?: { status?: number; data?: any } }).response;
+    if (!response || response.status !== 401 && response.status !== 403) return false;
+    const message = response.data?.message;
+    return typeof message === 'string' && message.toLowerCase().includes('not authenticated');
   }
 
   private async notifyModRequirement(binding: ChatroomInfo): Promise<void> {

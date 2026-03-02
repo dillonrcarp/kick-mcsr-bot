@@ -6,7 +6,9 @@ Kick chat bot with pluggable commands for MCSR Ranked stats.
 
 1. Copy `.env.example` to `.env` and fill in your Kick token, username, and channel.
    - To handle multiple channels, set `KICK_CHANNELS` to entries like `channel1:12345,channel2:67890`.
-   - Set `LOG_CHAT_EVENTS=1` if you want to log every incoming chat message (defaults to off).
+   - For sending chat messages, also set either `KICK_SESSION_COOKIE` and `KICK_XSRF_TOKEN`, or a raw `KICK_COOKIE_HEADER`.
+   - Set `DEBUG_CHAT=1` for websocket, routing, command, and send diagnostics.
+   - Set `LOG_CHAT_EVENTS=1` if you also want to log every incoming chat line (defaults to off).
 2. Install deps with `npm install`.
 3. Build with `npm run build`.
 4. Run with `npm start`.
@@ -27,6 +29,8 @@ Kick chat bot with pluggable commands for MCSR Ranked stats.
 - A health snapshot is written to `data/health.json`. It is ignored by git but is mounted to the host so Docker HEALTHCHECK can read it.
 - The Docker image defines `HEALTHCHECK` using `node dist/health/healthcheck.js`; `docker compose` will surface unhealthy status and restart the container (`restart: unless-stopped` in `docker-compose.yml`).
 - You can manually check health inside the container: `docker exec kickmcsr node dist/health/healthcheck.js`.
+- When `DEBUG_CHAT=1`, look for `[WS EVENT]`, `[CHAT RX]`, `[CMD OK]`, `[CMD MISS]`, `[SEND]`, and `[SEND FAILED]` lines to trace command handling.
+- If sends fail with `403 User is not authenticated`, websocket read access is working but Kick rejected write auth. Refresh `KICK_TOKEN` and provide `KICK_SESSION_COOKIE` plus `KICK_XSRF_TOKEN`, or set `KICK_COOKIE_HEADER`.
 
 ## Commands
 
