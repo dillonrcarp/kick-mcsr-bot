@@ -1,14 +1,17 @@
 [
   {
     "channel": "kickmcsr",
-    "chatroomId": 86176434
+    "chatroomId": 86176434,
+    "broadcasterId": 87664066
   },
   {
     "channel": "dillonrcarp",
-    "chatroomId": 80242344
+    "chatroomId": 80242344,
+    "broadcasterId": 81718836
   },
   {
     "channel": "thefreddymc",
-    "chatroomId": 67481022
+    "chatroomId": 67481022,
+    "broadcasterId": 68930644
   }
 ]

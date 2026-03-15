@@ -5,3 +5,4 @@ dist
 .env.dillonrcarp
 .devcontainer
 data/health.json
+data/tokens.json

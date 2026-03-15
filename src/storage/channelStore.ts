@@ -4,6 +4,7 @@ import path from 'node:path';
 export interface StoredChannel {
   channel: string;
   chatroomId: number;
+  broadcasterId?: number;
 }
 
 const DATA_DIR = path.resolve('data');
@@ -27,6 +28,7 @@ export function loadStoredChannels(): StoredChannel[] {
       .map((entry) => ({
         channel: typeof entry.channel === 'string' ? entry.channel : '',
         chatroomId: Number(entry.chatroomId),
+        broadcasterId: entry.broadcasterId != null ? Number(entry.broadcasterId) : undefined,
       }))
       .filter((entry) => entry.channel && Number.isFinite(entry.chatroomId));
   } catch (err) {
@@ -50,6 +52,7 @@ export function dedupeChannels(channels: StoredChannel[]): StoredChannel[] {
       seen.set(key, {
         channel: entry.channel,
         chatroomId: entry.chatroomId,
+        broadcasterId: entry.broadcasterId,
       });
     }
   }

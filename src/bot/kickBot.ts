@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import WebSocket, { type RawData } from 'ws';
 import axios, { type RawAxiosRequestHeaders } from 'axios';
+import { loadTokens, refreshAccessToken } from '../auth/tokenStore.js';
 
 import { parseCommand } from '../commands/index.js';
 import type { ParsedCommand } from '../commands/index.js';
@@ -47,7 +48,7 @@ interface ExtractedChatEvent {
   chatroomField: string | null;
 }
 
-const DEFAULT_PUSHER_KEY = 'eb707e3b98eae06e0046';
+const DEFAULT_PUSHER_KEY = '32cbd69e4b950bf97679';
 const DEFAULT_CLUSTERS = ['us2', 'us1', 'us3', 'mt1'];
 const PUSHER_CLIENT = 'js';
 const PUSHER_VERSION = '8.4.0';
@@ -136,13 +137,14 @@ export function extractChatEvent(message: PusherMessage): ExtractedChatEvent {
 }
 
 export class KickBot {
-  private readonly headers: RawAxiosRequestHeaders;
+  private headers: RawAxiosRequestHeaders;
   private ws?: WebSocket;
-  private readonly config: EnvConfig;
+  private config: EnvConfig;
   private readonly pusherKey: string;
   private readonly clusterList: string[];
   private readonly bindings: ChatroomInfo[] = [];
   private readonly botsByRoom = new Map<string, ChatroomInfo>();
+  private readonly broadcasterIdByRoom = new Map<number, number>(); // chatroomId -> broadcasterId
   private readonly homeChannel: string;
   private readonly commandRegistry: CommandRegistry;
   private readonly health: HealthMonitor;
@@ -157,6 +159,10 @@ export class KickBot {
     this.config = config;
     this.appVersion = this.resolveVersion();
     this.pusherKey = config.pusherKey || DEFAULT_PUSHER_KEY;
+    const storedTokens = loadTokens();
+    if (storedTokens) {
+      this.config = { ...config, token: storedTokens.accessToken };
+    }
     this.headers = this.buildHeaders();
     const preferred = config.pusherCluster?.split(',').map((c) => c.trim()).filter(Boolean) ?? [];
     const merged = [...preferred, ...DEFAULT_CLUSTERS];
@@ -195,13 +201,18 @@ export class KickBot {
     }
     this.bindings.splice(0, this.bindings.length);
     this.botsByRoom.clear();
+    this.broadcasterIdByRoom.clear();
     for (const binding of infos) {
       this.addBindingToMemory(binding);
+      if (binding.broadcasterId) {
+        this.broadcasterIdByRoom.set(binding.chatroomId, binding.broadcasterId);
+      }
     }
     saveStoredChannels(
       this.bindings.map((binding) => ({
         channel: binding.channel,
         chatroomId: binding.chatroomId,
+        broadcasterId: binding.broadcasterId,
       })),
     );
     const channelSummary = this.bindings.map((binding) => `#${binding.channel}`).join(', ') || '(none)';
@@ -596,7 +607,7 @@ export class KickBot {
           console.error('Failed to send reply', { status, data, message, channel: binding.channel });
           if (this.isAuthenticationError(err)) {
             console.error(
-              '[AUTH ERROR] Kick rejected message send as unauthenticated. Refresh KICK_TOKEN and set KICK_SESSION_COOKIE/KICK_XSRF_TOKEN or KICK_COOKIE_HEADER.',
+              '[AUTH ERROR] Kick rejected message send as unauthenticated. Refresh KICK_AUTH_TOKEN and set KICK_SESSION_COOKIE/KICK_XSRF_TOKEN or KICK_COOKIE_HEADER.',
             );
           }
           if (this.isModRequiredError(err)) {
@@ -652,6 +663,7 @@ export class KickBot {
     const normalized: ChatroomInfo = {
       channel: channelSlug,
       chatroomId: binding.chatroomId,
+      broadcasterId: binding.broadcasterId,
     };
     const key = this.chatroomKey(normalized.chatroomId);
     const existingIdx = this.bindings.findIndex(
@@ -663,6 +675,9 @@ export class KickBot {
       this.bindings.push(normalized);
     }
     this.botsByRoom.set(key, normalized);
+    if (normalized.broadcasterId) {
+      this.broadcasterIdByRoom.set(normalized.chatroomId, normalized.broadcasterId);
+    }
   }
 
   private removeBinding(chatroomId: number): void {
@@ -675,30 +690,55 @@ export class KickBot {
   }
 
   private async sendMessage(chatroomId: number, content: string): Promise<void> {
-    const url = `https://kick.com/api/v2/messages/send/${chatroomId}`;
-    const payload = (text: string) => ({
-      content: text,
-      type: 'message',
-    });
-
     if (this.config.debugChat) {
-      console.log('[SEND]', {
-        chatroomId,
-        content,
-      });
+      console.log('[SEND]', { chatroomId, content });
+    }
+    await this.doSend(chatroomId, content, false);
+  }
+
+  private async doSend(chatroomId: number, content: string, isRetry: boolean): Promise<void> {
+    const useOAuth = !!(this.config.clientId && this.config.clientSecret && this.config.token);
+
+    let url: string;
+    let payload: Record<string, unknown>;
+    let headers: RawAxiosRequestHeaders;
+
+    if (useOAuth) {
+      url = 'https://api.kick.com/public/v1/chat';
+      const broadcasterId = this.broadcasterIdByRoom.get(chatroomId);
+      payload = broadcasterId
+        ? { content, type: 'user', broadcaster_user_id: broadcasterId }
+        : { content, type: 'bot' };
+      headers = {
+        Authorization: `Bearer ${this.config.token}`,
+        'Content-Type': 'application/json',
+      };
+    } else {
+      url = `https://kick.com/api/v2/messages/send/${chatroomId}`;
+      payload = { content, type: 'message' };
+      headers = this.headers;
     }
 
     try {
-      await axios.post(url, payload(content), {
-        headers: this.headers,
-        withCredentials: true,
-        xsrfCookieName: 'XSRF-TOKEN',
-        xsrfHeaderName: 'X-XSRF-TOKEN',
-        timeout: 8000,
-      });
+      await axios.post(url, payload, { headers, timeout: 8000 });
     } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+
+      if (!isRetry && (status === 401 || status === 403) && this.config.clientId && this.config.clientSecret) {
+        console.log('[AUTH] Token rejected, attempting refresh...');
+        try {
+          const tokens = await refreshAccessToken(this.config.clientId, this.config.clientSecret);
+          this.config = { ...this.config, token: tokens.accessToken };
+          this.headers = this.buildHeaders();
+          console.log('[AUTH] Token refreshed, retrying send...');
+          await this.doSend(chatroomId, content, true);
+          return;
+        } catch (refreshErr) {
+          console.error('[AUTH] Token refresh failed:', (refreshErr as Error).message);
+        }
+      }
+
       if (this.config.debugChat) {
-        const status = (err as { response?: { status?: number } }).response?.status;
         const data = (err as { response?: { data?: unknown } }).response?.data;
         const message = (err as Error)?.message;
         console.error('[SEND FAILED]', { chatroomId, status, data, message, content });
@@ -729,9 +769,18 @@ export class KickBot {
     } else {
       console.log(`Loaded ${merged.length} channel mapping(s) from storage/env.`);
     }
-    return merged.map((entry) => ({
+    // Fetch broadcasterId for any channels that don't have it yet
+    const results = await Promise.all(
+      merged.map(async (entry) => {
+        if (entry.broadcasterId) return entry;
+        const fetched = await this.fetchChannelInfo(entry.channel);
+        return { ...entry, broadcasterId: fetched?.broadcasterId };
+      }),
+    );
+    return results.map((entry) => ({
       channel: entry.channel,
       chatroomId: entry.chatroomId,
+      broadcasterId: entry.broadcasterId,
     }));
   }
 
@@ -759,9 +808,11 @@ export class KickBot {
       if (!channelSlug || !Number.isFinite(chatroomId)) {
         return null;
       }
+      const broadcasterId = Number(data?.user_id) || undefined;
       return {
         channel: String(channelSlug),
         chatroomId,
+        broadcasterId,
       };
     } catch (err) {
       console.error('fetchChannelInfo failed for', slug, err);

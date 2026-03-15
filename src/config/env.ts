@@ -5,10 +5,13 @@ dotenv.config();
 export interface ChannelMapping {
   channel: string;
   chatroomId: number;
+  broadcasterId?: number;
 }
 
 export interface EnvConfig {
   token: string;
+  clientId?: string;
+  clientSecret?: string;
   channel: string;
   botUsername: string;
   debugChat: boolean;
@@ -58,9 +61,11 @@ function parseChannels(raw?: string | null): ChannelMapping[] {
 
 export function loadEnv(): EnvConfig {
   return {
-    token: requireEnv('KICK_TOKEN', process.env.KICK_TOKEN),
+    token: process.env.KICK_AUTH_TOKEN?.trim() ?? '',
+    clientId: process.env.KICK_CLIENT_ID?.trim(),
+    clientSecret: process.env.KICK_CLIENT_SECRET?.trim(),
     channel: requireEnv('KICK_CHANNEL', process.env.KICK_CHANNEL),
-    botUsername: requireEnv('KICK_BOT_USERNAME', process.env.KICK_BOT_USERNAME),
+    botUsername: requireEnv('KICK_USERNAME', process.env.KICK_USERNAME),
     debugChat: parseBool(process.env.DEBUG_CHAT),
     logChatEvents: parseBool(process.env.LOG_CHAT_EVENTS),
     pusherKey: process.env.KICK_PUSHER_KEY?.trim(),

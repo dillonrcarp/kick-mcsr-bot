@@ -30,7 +30,7 @@ Kick chat bot with pluggable commands for MCSR Ranked stats.
 - The Docker image defines `HEALTHCHECK` using `node dist/health/healthcheck.js`; `docker compose` will surface unhealthy status and restart the container (`restart: unless-stopped` in `docker-compose.yml`).
 - You can manually check health inside the container: `docker exec kickmcsr node dist/health/healthcheck.js`.
 - When `DEBUG_CHAT=1`, look for `[WS EVENT]`, `[CHAT RX]`, `[CMD OK]`, `[CMD MISS]`, `[SEND]`, and `[SEND FAILED]` lines to trace command handling.
-- If sends fail with `403 User is not authenticated`, websocket read access is working but Kick rejected write auth. Refresh `KICK_TOKEN` and provide `KICK_SESSION_COOKIE` plus `KICK_XSRF_TOKEN`, or set `KICK_COOKIE_HEADER`.
+- If sends fail with `403 User is not authenticated`, websocket read access is working but Kick rejected write auth. Refresh `KICK_AUTH_TOKEN` and provide `KICK_SESSION_COOKIE` plus `KICK_XSRF_TOKEN`, or set `KICK_COOKIE_HEADER`.
 
 ## Commands
 
