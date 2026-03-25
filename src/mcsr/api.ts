@@ -1255,6 +1255,7 @@ function matchIncludesPlayer(match: any, target: string): boolean {
 export interface PlayerRecord {
   wins: number;
   losses: number;
+  draws?: number;
   matches: number;
   ffr?: number;
   displayName?: string;
@@ -1294,10 +1295,12 @@ export async function getPlayerRecord(username: string): Promise<PlayerRecord | 
           statsRoot?.matches,
       );
     const matches = matchesField ?? wins + losses + forfeits;
+    const draws = matchesField !== undefined ? Math.max(0, matchesField - wins - losses - forfeits) : undefined;
     const ffr = matches > 0 ? (forfeits / matches) * 100 : undefined;
     return {
       wins,
       losses,
+      draws,
       matches,
       ffr,
       displayName,
@@ -1407,6 +1410,7 @@ export interface RecentWindowStats {
   player: string;
   wins: number;
   losses: number;
+  draws: number;
   matches: number;
   eloDelta: number;
   bestWinMs?: number;
@@ -1421,6 +1425,7 @@ export async function getRecentWindowStats(username: string, windowMs = 24 * 60 
 
   let wins = 0;
   let losses = 0;
+  let draws = 0;
   let eloDelta = 0;
   let displayName: string | undefined;
   const winTimes: number[] = [];
@@ -1456,7 +1461,8 @@ export async function getRecentWindowStats(username: string, windowMs = 24 * 60 
     }
 
     const winnerUuid = match?.result?.uuid ? String(match.result.uuid) : null;
-    const isWin = player.uuid && winnerUuid ? String(player.uuid) === winnerUuid : false;
+    const isDraw = !winnerUuid;
+    const isWin = !isDraw && player.uuid ? String(player.uuid) === winnerUuid : false;
     const change = findEloChangeForPlayer(match?.changes, player.uuid);
     if (Number.isFinite(change)) {
       eloDelta += Number(change);
@@ -1468,12 +1474,14 @@ export async function getRecentWindowStats(username: string, windowMs = 24 * 60 
       if (Number.isFinite(durationMs) && !forfeited) {
         winTimes.push(Number(durationMs));
       }
+    } else if (isDraw) {
+      draws += 1;
     } else {
       losses += 1;
     }
   }
 
-  const matchesCount = wins + losses;
+  const matchesCount = wins + losses + draws;
   if (matchesCount === 0) return null;
 
   const bestWinMs = winTimes.length ? Math.min(...winTimes) : undefined;
@@ -1485,6 +1493,7 @@ export async function getRecentWindowStats(username: string, windowMs = 24 * 60 
     player: displayName || slug,
     wins,
     losses,
+    draws,
     matches: matchesCount,
     eloDelta,
     bestWinMs,

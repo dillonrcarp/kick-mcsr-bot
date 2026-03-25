@@ -119,9 +119,14 @@ export function buildStatsMessage(data: Record<string, any>, fallbackName: strin
   }
 
   if (wins !== undefined && losses !== undefined) {
-    const total = wins + losses;
+    const total = matches ?? wins + losses;
     const winrate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
-    segments.push(`W/L: ${wins}/${losses} (${winrate}%)`);
+    const inferredDraws = matches !== undefined ? Math.max(0, matches - wins - losses - (forfeits ?? 0)) : 0;
+    const wdlText =
+      inferredDraws > 0
+        ? `${wins}/${inferredDraws}/${losses}`
+        : `${wins}/${losses}`;
+    segments.push(`W/L: ${wdlText} (${winrate}%)`);
   }
 
   if (streaks.longest !== undefined) {

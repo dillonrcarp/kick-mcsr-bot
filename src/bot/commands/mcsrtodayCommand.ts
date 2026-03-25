@@ -31,12 +31,16 @@ export class MCSRTodayCommand implements ChatCommand {
       const eloText = formatEloDelta(stats.eloDelta);
       const matches = Math.max(1, stats.matches);
       const winrate = Math.round((stats.wins / matches) * 100);
+      const wdlText =
+        stats.draws > 0
+          ? `${stats.wins}/${stats.draws}/${stats.losses}`
+          : `${stats.wins}/${stats.losses}`;
 
       const segments = [
         'Stats: Last 12h',
         `Best: ${bestText} (avg ${avgText})`,
         `Elo Δ ${eloText}`,
-        `W/L: ${winrate}% (${stats.wins}/${stats.losses})`,
+        `W/L: ${winrate}% (${wdlText})`,
       ];
 
       await ctx.reply(`◆ ${stats.player} • ${segments.join(' • ')}`);

@@ -41,10 +41,14 @@ export class WinrateCommand implements ChatCommand {
         matches > 0 ? ((record.wins / matches) * 100).toFixed(1) : '0.0';
       const ffrText =
         record.ffr !== undefined && matches > 0 ? `${record.ffr.toFixed(2)}%` : null;
+      const wdlText =
+        record.draws !== undefined && record.draws > 0
+          ? `${record.wins}/${record.draws}/${record.losses}`
+          : `${record.wins}/${record.losses}`;
 
       const segments: string[] = [];
       segments.push(`Winrate: ${winrate}%`);
-      segments.push(`W/L: ${record.wins}/${record.losses}`);
+      segments.push(`W/L: ${wdlText}`);
       if (Number.isFinite(matches)) {
         segments.push(`Played ${matches} Matches`);
       }
