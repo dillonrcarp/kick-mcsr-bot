@@ -62,7 +62,7 @@ export class RecordCommand implements ChatCommand {
       segments.push(`${displayOne} vs ${displayTwo}: ${winsOne}:${winsTwo}`);
       segments.push(`Played ${totalMatches} Matches`);
       if (draws && draws > 0) {
-        segments.push(`${draws} draws`);
+        segments.push(`${draws} ${draws === 1 ? 'draw' : 'draws'}`);
       }
       if (lastMatchAt) {
         segments.push(`Last played ${formatTimeAgo(lastMatchAt)} ago`);
