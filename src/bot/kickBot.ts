@@ -44,6 +44,9 @@ interface ExtractedChatEvent {
   contentField: string | null;
   sender: string | null;
   senderField: string | null;
+  // True when the Kick payload marks the sender as broadcaster or moderator.
+  // Best-effort: absence of badges means false, never "assume privileged".
+  senderIsPrivileged: boolean;
   chatroomId: number | null;
   chatroomField: string | null;
 }
@@ -108,6 +111,7 @@ export function extractChatEvent(message: PusherMessage): ExtractedChatEvent {
     ['senderUsername', data?.senderUsername],
     ['username', data?.username],
   ]);
+  const senderIsPrivileged = extractPrivileged(data);
   const chatroomCandidates: Array<[field: string, value: unknown]> = [
     ['chatroom_id', data?.chatroom_id],
     ['chatroomId', data?.chatroomId],
@@ -131,9 +135,26 @@ export function extractChatEvent(message: PusherMessage): ExtractedChatEvent {
     contentField: content.field,
     sender: sender.value,
     senderField: sender.field,
+    senderIsPrivileged,
     chatroomId,
     chatroomField,
   };
+}
+
+// Best-effort read of broadcaster/moderator status from a Kick chat payload.
+// Kick sends sender.identity.badges as an array of { type, text } — types
+// include 'broadcaster', 'moderator', 'og', 'vip', 'subscriber'. We only treat
+// broadcaster/moderator as privileged, and default to NOT privileged when the
+// shape is missing or unexpected. This is a convenience grant layered on top of
+// the KICK_CONTROL_USERS allowlist — never the sole authorization path, since
+// the exact payload shape is not guaranteed across Kick API versions.
+function extractPrivileged(data: Record<string, any> | null): boolean {
+  const badges = data?.sender?.identity?.badges;
+  if (!Array.isArray(badges)) return false;
+  return badges.some((badge) => {
+    const type = typeof badge?.type === 'string' ? badge.type.toLowerCase() : '';
+    return type === 'broadcaster' || type === 'moderator';
+  });
 }
 
 export class KickBot {
@@ -146,6 +167,7 @@ export class KickBot {
   private readonly botsByRoom = new Map<string, ChatroomInfo>();
   private readonly broadcasterIdByRoom = new Map<number, number>(); // chatroomId -> broadcasterId
   private readonly homeChannel: string;
+  private readonly controlUsers: Set<string>;
   private readonly commandRegistry: CommandRegistry;
   private readonly health: HealthMonitor;
   private readonly appVersion: string;
@@ -154,6 +176,18 @@ export class KickBot {
   private reconnectAttempts = 0;
   private currentClusterIndex = 0;
   private readonly staleCheckMs = 30000;
+  // Anti-spam: per-user command cooldown (drops commands issued faster than this).
+  private readonly lastCommandAt = new Map<string, number>();
+  private readonly userCommandCooldownMs = 3000;
+  // Anti-flood: minimum spacing between ANY two outbound sends, serialized
+  // through a promise chain so a command burst cannot fire sends back-to-back.
+  private sendChain: Promise<void> = Promise.resolve();
+  private lastSendAt = 0;
+  private readonly globalSendGapMs = 1500;
+  // Bounded queue: cap sends queued/in-flight so a raid cannot pile up an
+  // unbounded backlog (each queued send holds a timer + pending promise).
+  private pendingSends = 0;
+  private readonly maxPendingSends = 25;
 
   constructor(config: EnvConfig) {
     this.config = config;
@@ -168,6 +202,9 @@ export class KickBot {
     const merged = [...preferred, ...DEFAULT_CLUSTERS];
     this.clusterList = Array.from(new Set(merged));
     this.homeChannel = this.config.channel.toLowerCase();
+    // Control-command allowlist: the home broadcaster is always authorized;
+    // KICK_CONTROL_USERS adds explicit operators (e.g. the bot owner).
+    this.controlUsers = new Set([this.homeChannel, ...(this.config.controlUsers ?? [])]);
     this.health = new HealthMonitor({
       appVersion: this.appVersion,
       heartbeatMs: 45000,
@@ -319,9 +356,14 @@ export class KickBot {
     console.log(
       `[CONNECT] Opening WebSocket to ${target} (attempt ${this.reconnectAttempts + 1})`,
     );
-    if (!this.config.cookieHeader && (!this.config.sessionCookie || !this.config.xsrfToken)) {
+    const usingOAuth = !!(this.config.clientId && this.config.clientSecret && this.config.token);
+    if (
+      !usingOAuth &&
+      !this.config.cookieHeader &&
+      (!this.config.sessionCookie || !this.config.xsrfToken)
+    ) {
       console.warn(
-        '[AUTH WARNING] Write auth cookies are missing. Reading chat may work, but sending messages can fail with 403. Set KICK_SESSION_COOKIE and KICK_XSRF_TOKEN or KICK_COOKIE_HEADER.',
+        '[AUTH WARNING] No write auth configured. Reading chat may work, but sending will fail. Set KICK_CLIENT_ID/KICK_CLIENT_SECRET (OAuth, preferred) or KICK_SESSION_COOKIE + KICK_XSRF_TOKEN / KICK_COOKIE_HEADER.',
       );
     }
     this.health.setConnectionState(
@@ -537,7 +579,7 @@ export class KickBot {
   private async processChatEvent(message: PusherMessage): Promise<void> {
     if (!this.botsByRoom.size) return;
     const extracted = extractChatEvent(message);
-    const { content, sender, chatroomId } = extracted;
+    const { content, sender, chatroomId, senderIsPrivileged } = extracted;
     if (!content || !sender || chatroomId === null) {
       if (this.shouldLogVerboseChat()) {
         console.warn('[CHAT DROP]', {
@@ -581,11 +623,26 @@ export class KickBot {
       return;
     }
 
+    // Anti-spam: rate-limit commands per user before doing any work or sending.
+    // Only gates recognized commands (a bare chat line is never a send trigger).
+    // Authorized operators (broadcaster/mods/allowlist) are exempt so their
+    // legitimate bursts (e.g. +join a; +join b) are not silently dropped.
+    if (
+      command &&
+      !this.isControlAuthorized(sender, senderIsPrivileged) &&
+      !this.allowCommandFromUser(sender)
+    ) {
+      if (this.shouldLogVerboseChat()) {
+        console.log('[RATE LIMIT] Dropping command (cooldown)', { sender, name: command.name });
+      }
+      return;
+    }
+
     let handled = false;
     if (command?.name === 'join') {
-      handled = await this.handleJoinCommand(command, binding, sender);
+      handled = await this.handleJoinCommand(command, binding, sender, senderIsPrivileged);
     } else if (command?.name === 'leave') {
-      handled = await this.handleLeaveCommand(command, binding, sender);
+      handled = await this.handleLeaveCommand(command, binding, sender, senderIsPrivileged);
     }
 
     if (handled) return;
@@ -597,9 +654,11 @@ export class KickBot {
       reply: async (text: string) => {
         try {
           await this.sendMessage(binding.chatroomId, text);
-          console.log(
-            `[BOT][#${binding.channel}] Replied to ${sender}: ${text} | Trigger: ${content}`,
-          );
+          if (this.shouldLogVerboseChat()) {
+            console.log(
+              `[BOT][#${binding.channel}] Replied to ${sender}: ${text} | Trigger: ${content}`,
+            );
+          }
         } catch (err) {
           const status = (err as { response?: { status?: number } }).response?.status;
           const data = (err as { response?: { data?: unknown } }).response?.data;
@@ -696,7 +755,33 @@ export class KickBot {
     await this.doSend(chatroomId, content, false);
   }
 
+  // Serialize outbound sends and enforce a minimum gap between any two of them,
+  // regardless of how fast commands arrive. Chained so concurrent callers queue
+  // rather than race; a rejected link never breaks the chain.
+  private throttleSend(): Promise<void> {
+    const run = this.sendChain.then(async () => {
+      const wait = Math.max(0, this.lastSendAt + this.globalSendGapMs - Date.now());
+      if (wait > 0) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      this.lastSendAt = Date.now();
+    });
+    this.sendChain = run.catch(() => {});
+    return run;
+  }
+
   private async doSend(chatroomId: number, content: string, isRetry: boolean): Promise<void> {
+    if (!isRetry) {
+      if (this.pendingSends >= this.maxPendingSends) {
+        console.warn('[SEND DROPPED] Outbound send queue full; dropping message', {
+          pending: this.pendingSends,
+          chatroomId,
+        });
+        return;
+      }
+      this.pendingSends++;
+    }
+    try {
     const useOAuth = !!(this.config.clientId && this.config.clientSecret && this.config.token);
 
     let url: string;
@@ -720,6 +805,7 @@ export class KickBot {
     }
 
     try {
+      await this.throttleSend();
       await axios.post(url, payload, { headers, timeout: 8000 });
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status;
@@ -744,6 +830,11 @@ export class KickBot {
         console.error('[SEND FAILED]', { chatroomId, status, data, message, content });
       }
       throw err;
+    }
+    } finally {
+      if (!isRetry) {
+        this.pendingSends--;
+      }
     }
   }
 
@@ -822,13 +913,49 @@ export class KickBot {
     }
   }
 
+  // Per-user command cooldown. Returns true if this user may run a command now,
+  // false if they are inside the cooldown window. Records the timestamp on allow.
+  private allowCommandFromUser(sender: string): boolean {
+    const key = sender.toLowerCase();
+    const now = Date.now();
+    const last = this.lastCommandAt.get(key) ?? 0;
+    if (now - last < this.userCommandCooldownMs) {
+      return false;
+    }
+    this.lastCommandAt.set(key, now);
+    // Opportunistic prune so the map can't grow without bound on long uptime.
+    if (this.lastCommandAt.size > 2000) {
+      for (const [k, ts] of this.lastCommandAt) {
+        if (now - ts > 60000) this.lastCommandAt.delete(k);
+      }
+    }
+    return true;
+  }
+
+  // Authorization for control commands (+join/+leave). A sender is authorized
+  // only if they are the home broadcaster, on the KICK_CONTROL_USERS allowlist,
+  // or carry a broadcaster/moderator badge. Everyone else is denied. This is the
+  // security boundary that stops any viewer from steering the write-authed
+  // account into arbitrary channels.
+  private isControlAuthorized(sender: string, senderIsPrivileged: boolean): boolean {
+    if (senderIsPrivileged) return true;
+    return this.controlUsers.has(sender.toLowerCase());
+  }
+
   private async handleJoinCommand(
     command: ParsedCommand,
     binding: ChatroomInfo,
     sender: string,
+    senderIsPrivileged: boolean,
   ): Promise<boolean> {
     if (binding.channel.toLowerCase() !== this.homeChannel) {
       return false;
+    }
+    if (!this.isControlAuthorized(sender, senderIsPrivileged)) {
+      // Silently consume: do NOT reply (that would let an unauthorized user make
+      // the bot emit messages) and do NOT fall through to command handling.
+      console.warn('[JOIN DENIED] unauthorized sender =', sender);
+      return true;
     }
 
     const targetArg = command.args?.[0]?.trim();
@@ -874,9 +1001,14 @@ export class KickBot {
     command: ParsedCommand,
     binding: ChatroomInfo,
     sender: string,
+    senderIsPrivileged: boolean,
   ): Promise<boolean> {
     if (binding.channel.toLowerCase() !== this.homeChannel) {
       return false;
+    }
+    if (!this.isControlAuthorized(sender, senderIsPrivileged)) {
+      console.warn('[LEAVE DENIED] unauthorized sender =', sender);
+      return true;
     }
 
     const targetArg = command.args?.[0]?.trim();

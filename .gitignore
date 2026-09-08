@@ -6,3 +6,6 @@ dist
 .devcontainer
 data/health.json
 data/tokens.json
+# Runtime user data — accrues real Kick->Minecraft username mappings; must never
+# be committed (this repo is public). channels.json stays tracked as seed config.
+data/links.json

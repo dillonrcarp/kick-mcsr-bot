@@ -6,6 +6,8 @@ import {
   OWNER_LINK_TOOLTIP,
   SELF_LINK_TOOLTIP,
   resolveSinglePlayerTarget,
+  isValidPlayerName,
+  INVALID_NAME_MESSAGE,
 } from './targetResolver.js';
 
 function makeCtx(channel: string, username: string): ChatCommandContext {
@@ -100,5 +102,39 @@ describe('resolveSinglePlayerTarget', () => {
       },
     );
     assert.deepEqual(missing, { ok: false, message: SELF_LINK_TOOLTIP });
+  });
+
+  it('rejects an invalid explicit target instead of echoing it', async () => {
+    const resolved = await resolveSinglePlayerTarget(
+      makeCtx('owner', 'sender'),
+      ['http://evil.example'],
+      {
+        getLinkedMcName: () => undefined,
+        getPlayerSummary: async () => null,
+      },
+    );
+    assert.deepEqual(resolved, { ok: false, message: INVALID_NAME_MESSAGE });
+  });
+});
+
+describe('isValidPlayerName', () => {
+  it('accepts valid Minecraft-style usernames', () => {
+    for (const name of ['Feinberg', 'k4de_', 'a', 'ABC123', 'sixteen_chars_16']) {
+      assert.equal(isValidPlayerName(name), true, name);
+    }
+  });
+
+  it('rejects names that would let a viewer echo arbitrary strings', () => {
+    for (const bad of [
+      'http://evil.example',
+      '@everyone',
+      'has space',
+      'a'.repeat(17),
+      'na<script>',
+      'ni🎉ce',
+      '',
+    ]) {
+      assert.equal(isValidPlayerName(bad), false, JSON.stringify(bad));
+    }
   });
 });

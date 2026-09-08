@@ -44,6 +44,36 @@ describe('extractChatEvent', () => {
     assert.equal(extracted.chatroomId, 67890);
     assert.equal(extracted.chatroomField, 'channel');
   });
+
+  it('marks broadcaster/moderator senders as privileged', () => {
+    const mod = extractChatEvent({
+      channel: 'chatrooms.12345.v2',
+      data: JSON.stringify({
+        content: '+join someone',
+        sender: { username: 'AMod', identity: { badges: [{ type: 'moderator' }] } },
+        chatroom_id: 12345,
+      }),
+    });
+    assert.equal(mod.senderIsPrivileged, true);
+  });
+
+  it('defaults senderIsPrivileged to false when badges are absent or non-privileged', () => {
+    const plain = extractChatEvent({
+      channel: 'chatrooms.12345.v2',
+      data: JSON.stringify({
+        content: '+join someone',
+        sender: { username: 'RandomViewer', identity: { badges: [{ type: 'subscriber' }] } },
+        chatroom_id: 12345,
+      }),
+    });
+    assert.equal(plain.senderIsPrivileged, false);
+
+    const noBadges = extractChatEvent({
+      channel: 'chatroom_67890',
+      data: { body: '+ping', senderUsername: 'Speedrunner' },
+    });
+    assert.equal(noBadges.senderIsPrivileged, false);
+  });
 });
 
 describe('parseChatroomFromChannel', () => {
