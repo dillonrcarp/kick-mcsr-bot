@@ -6,6 +6,10 @@ dist
 .devcontainer
 data/health.json
 data/tokens.json
-# Runtime user data — accrues real Kick->Minecraft username mappings; must never
-# be committed (this repo is public). channels.json stays tracked as seed config.
+# Runtime user data — must never be committed (this repo is public).
+#  - links.json accrues real Kick->Minecraft username mappings.
+#  - channels.json is rewritten at runtime by +join/+leave, so a tracked copy
+#    would leak the bot's live channel roster. Seed config ships as
+#    data/channels.example.json — copy it to data/channels.json on first setup.
 data/links.json
+data/channels.json

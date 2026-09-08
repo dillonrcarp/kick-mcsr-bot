@@ -104,6 +104,32 @@ describe('resolveSinglePlayerTarget', () => {
     assert.deepEqual(missing, { ok: false, message: SELF_LINK_TOOLTIP });
   });
 
+  it('ignores a malformed owner link instead of echoing it (read-side validation)', async () => {
+    // Simulates a links.json entry that predates the write-time guard.
+    const resolved = await resolveSinglePlayerTarget(
+      makeCtx('owner', 'sender'),
+      [],
+      {
+        getLinkedMcName: (name) => (name === 'owner' ? 'http://evil.example' : undefined),
+        getPlayerSummary: async (name) => (name === 'owner' ? { username: 'owner' } : null),
+      },
+    );
+    // The bad link is dropped; resolution falls through to the owner username.
+    assert.deepEqual(resolved, { ok: true, name: 'owner', source: 'owner_username' });
+  });
+
+  it('ignores a malformed sender link on "me" instead of echoing it', async () => {
+    const resolved = await resolveSinglePlayerTarget(
+      makeCtx('owner', 'sender'),
+      ['me'],
+      {
+        getLinkedMcName: (name) => (name === 'sender' ? '@everyone' : undefined),
+        getPlayerSummary: async () => null,
+      },
+    );
+    assert.deepEqual(resolved, { ok: false, message: SELF_LINK_TOOLTIP });
+  });
+
   it('rejects an invalid explicit target instead of echoing it', async () => {
     const resolved = await resolveSinglePlayerTarget(
       makeCtx('owner', 'sender'),

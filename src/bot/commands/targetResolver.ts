@@ -97,8 +97,11 @@ export async function resolveChannelOwnerTarget(
   const channelOwner = normalize(ctx.channel);
   if (!channelOwner) return null;
 
+  // Validate on read as well as on write: a links.json entry that predates the
+  // write-time guard (or was hand-edited / restored from an old volume) could
+  // hold an arbitrary string. Never echo one back through the modded bot.
   const ownerLinked = resolverDeps.getLinkedMcName(channelOwner);
-  if (ownerLinked) {
+  if (ownerLinked && isValidPlayerName(ownerLinked)) {
     return { name: ownerLinked, source: 'linked' };
   }
 
@@ -118,7 +121,7 @@ export async function resolveSenderTarget(
   if (!sender) return null;
 
   const senderLinked = resolverDeps.getLinkedMcName(sender);
-  if (senderLinked) {
+  if (senderLinked && isValidPlayerName(senderLinked)) {
     return { name: senderLinked, source: 'linked' };
   }
 

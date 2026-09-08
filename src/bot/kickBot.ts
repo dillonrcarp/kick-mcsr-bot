@@ -782,7 +782,36 @@ export class KickBot {
       this.pendingSends++;
     }
     try {
-    const useOAuth = !!(this.config.clientId && this.config.clientSecret && this.config.token);
+    const oauthConfigured = !!(this.config.clientId && this.config.clientSecret);
+
+    // If the operator configured OAuth (client id + secret) but no access token
+    // is loaded, do NOT silently fall back to the unofficial cookie endpoint —
+    // that routes sends through a ToS-risky private API under an operator who
+    // deliberately chose the official path. Try a single refresh; if that fails,
+    // drop the send loudly rather than degrading auth mode behind their back.
+    if (oauthConfigured && !this.config.token) {
+      if (!isRetry) {
+        try {
+          const tokens = await refreshAccessToken(this.config.clientId!, this.config.clientSecret!);
+          this.config = { ...this.config, token: tokens.accessToken };
+          this.headers = this.buildHeaders();
+          await this.doSend(chatroomId, content, true);
+          return;
+        } catch (refreshErr) {
+          console.error(
+            '[AUTH] OAuth configured but no valid access token and refresh failed; refusing cookie fallback. Send dropped.',
+            (refreshErr as Error).message,
+          );
+          return;
+        }
+      }
+      console.error(
+        '[AUTH] OAuth configured but no valid access token; refusing cookie fallback. Send dropped.',
+      );
+      return;
+    }
+
+    const useOAuth = oauthConfigured && !!this.config.token;
 
     let url: string;
     let payload: Record<string, unknown>;

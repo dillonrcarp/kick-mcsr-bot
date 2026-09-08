@@ -18,7 +18,7 @@ export class MCSRHelpCommand implements ChatCommand {
     const join = commandLabel('join');
     const copy = [
       'MCSR Commands:',
-      `◆ ${elo} {player} ◆ ${lastmatch} {player} ◆ ${today} {player} • Show stats for last 12h ◆ ${link} {mcUsername} • Link your Kick username to a Minecraft username. ◆ ${join} • Invite this bot to your Kick channel by sending ${join} in kickmcsr's chat.`,
+      `◆ ${elo} {player} ◆ ${lastmatch} {player} ◆ ${today} {player} • Show stats for last 12h ◆ ${link} {mcUsername} • Link your Kick username to a Minecraft username. ◆ ${join} • Channel owners & mods only: add this bot to your channel.`,
     ];
     await replyWithChunks(ctx, copy.join('\n'));
   }
