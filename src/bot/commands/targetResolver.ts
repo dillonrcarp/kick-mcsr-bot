@@ -7,6 +7,17 @@ export const OWNER_LINK_TOOLTIP =
   `No channel-owner Minecraft account found. Channel owner should link their Minecraft username with ${LINK_COMMAND_USAGE}.`;
 export const SELF_LINK_TOOLTIP =
   `No linked account found for you. ${LINK_SET_YOURS_TEXT}`;
+export const INVALID_NAME_MESSAGE =
+  'Invalid player name — use letters, numbers, or underscore (max 16 characters).';
+
+// Minecraft usernames are 1–16 chars of [A-Za-z0-9_]. Validating attacker-
+// supplied names against this BEFORE they are echoed back into chat prevents a
+// viewer from making the credentialed bot repeat arbitrary strings (URLs,
+// mentions, slurs) — the platform special-char filter is NOT a backstop once the
+// bot is a moderator in the channel.
+export function isValidPlayerName(name: string): boolean {
+  return /^[A-Za-z0-9_]{1,16}$/.test(name);
+}
 
 type ResolvedNameSource = 'linked' | 'username';
 
@@ -49,6 +60,9 @@ export async function resolveSinglePlayerTarget(
   const explicitTarget = arg && !wantsSelf ? arg : null;
 
   if (explicitTarget) {
+    if (!isValidPlayerName(explicitTarget)) {
+      return { ok: false, message: INVALID_NAME_MESSAGE };
+    }
     return { ok: true, name: explicitTarget, source: 'explicit' };
   }
 

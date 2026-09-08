@@ -8,6 +8,8 @@ import {
   SELF_LINK_TOOLTIP,
   resolveChannelOwnerTarget,
   resolveSenderTarget,
+  isValidPlayerName,
+  INVALID_NAME_MESSAGE,
 } from './targetResolver.js';
 
 interface PredictDeps {
@@ -115,6 +117,12 @@ export class PredictCommand implements ChatCommand {
         matchCount = clamp(Math.round(num), 1, MAX_MATCHES);
       } else if (arg) {
         nameTokens.push(arg);
+      }
+    }
+
+    for (const token of nameTokens) {
+      if (!isValidPlayerName(token)) {
+        return { ok: false, message: INVALID_NAME_MESSAGE };
       }
     }
 

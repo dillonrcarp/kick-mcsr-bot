@@ -4,10 +4,12 @@ Kick chat bot with pluggable commands for MCSR Ranked stats.
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill in your Kick token, username, and channel.
+1. Copy `.env.example` to `.env` and fill in your Kick username and channel.
    - To handle multiple channels, set `KICK_CHANNELS` to entries like `channel1:12345,channel2:67890`.
-   - For sending chat messages, also set either `KICK_SESSION_COOKIE` and `KICK_XSRF_TOKEN`, or a raw `KICK_COOKIE_HEADER`.
-   - Set `DEBUG_CHAT=1` for websocket, routing, command, and send diagnostics.
+   - **Sending — preferred:** set `KICK_CLIENT_ID` + `KICK_CLIENT_SECRET` (Kick developer app) so the bot uses the official `api.kick.com/public/v1/chat` OAuth endpoint with automatic token refresh.
+   - **Sending — fallback (unofficial, use at your own risk):** `KICK_SESSION_COOKIE` + `KICK_XSRF_TOKEN`, or a raw `KICK_COOKIE_HEADER`. This posts to a private endpoint with a real browser session, does not auto-refresh, and can get the account actioned — use a disposable bot account if at all.
+   - **`KICK_CONTROL_USERS`** (comma-separated usernames): who may run `+join`/`+leave`, in addition to the home-channel broadcaster and anyone with a broadcaster/moderator badge. Leave blank to restrict control to broadcaster/mods.
+   - Set `DEBUG_CHAT=1` for websocket/routing/command/send diagnostics (off by default; logs every chat line).
    - Set `LOG_CHAT_EVENTS=1` if you also want to log every incoming chat line (defaults to off).
 2. Install deps with `npm install`.
 3. Build with `npm run build`.
@@ -53,9 +55,9 @@ Legacy note: `!` still works as a compatibility fallback.
 | `+unlink` | — | Remove your own linked Minecraft username. |
 | `+mcsrhelp [command]` | `+mcsrcommands`, `+mcsr` | Lists all available MCSR commands. |
 
-Other bot controls:
-- `+join` (from the home channel) — ask the bot to join your channel.
-- `+leave` (from the home channel) — disconnect the bot from a channel.
+Other bot controls (**authorized users only** — the home-channel broadcaster, moderators, or accounts listed in `KICK_CONTROL_USERS`; requests from anyone else are silently ignored):
+- `+join <channel>` (from the home channel) — connect the bot to another channel.
+- `+leave <channel>` (from the home channel) — disconnect the bot from a channel.
 
 Use `+mcsrhelp` to see the in-chat command summary. Custom commands can be added by creating a module under `src/bot/commands` and registering it inside `KickBot`.  
 

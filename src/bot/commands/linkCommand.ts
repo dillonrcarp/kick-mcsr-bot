@@ -1,6 +1,7 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { setLinkedMcName } from '../../storage/linkStore.js';
 import { usageText } from '../../commands/commandSyntax.js';
+import { isValidPlayerName, INVALID_NAME_MESSAGE } from './targetResolver.js';
 
 export class LinkCommand implements ChatCommand {
   name = 'link';
@@ -12,6 +13,10 @@ export class LinkCommand implements ChatCommand {
     const mcName = args?.[0]?.trim();
     if (!mcName) {
       await ctx.reply(usageText('link', 'MinecraftUsername'));
+      return;
+    }
+    if (!isValidPlayerName(mcName)) {
+      await ctx.reply(INVALID_NAME_MESSAGE);
       return;
     }
 

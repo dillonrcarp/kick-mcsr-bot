@@ -24,6 +24,10 @@ export interface EnvConfig {
   extraCookies?: string;
   cookieHeader?: string;
   channels: ChannelMapping[];
+  // Usernames explicitly allowed to run control commands (+join/+leave), in
+  // addition to the home-channel broadcaster and anyone with a broadcaster/mod
+  // badge. Parsed from KICK_CONTROL_USERS (comma-separated), lower-cased.
+  controlUsers: string[];
 }
 
 function requireEnv(name: string, value?: string | null): string {
@@ -37,6 +41,14 @@ function parseBool(value?: string | null): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
+function parseList(raw?: string | null): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function parseChannels(raw?: string | null): ChannelMapping[] {
@@ -76,5 +88,6 @@ export function loadEnv(): EnvConfig {
     extraCookies: process.env.KICK_EXTRA_COOKIES?.trim(),
     cookieHeader: process.env.KICK_COOKIE_HEADER?.trim(),
     channels: parseChannels(process.env.KICK_CHANNELS),
+    controlUsers: parseList(process.env.KICK_CONTROL_USERS),
   };
 }

@@ -1,7 +1,12 @@
 import type { ChatCommand, ChatCommandContext } from './commandRegistry.js';
 import { getHeadToHead } from '../../mcsr/api.js';
 import { LINK_HINT_TEXT, usageText } from '../../commands/commandSyntax.js';
-import { OWNER_LINK_TOOLTIP, resolveChannelOwnerTarget } from './targetResolver.js';
+import {
+  OWNER_LINK_TOOLTIP,
+  resolveChannelOwnerTarget,
+  isValidPlayerName,
+  INVALID_NAME_MESSAGE,
+} from './targetResolver.js';
 
 export class RecordCommand implements ChatCommand {
   name = 'record';
@@ -13,6 +18,11 @@ export class RecordCommand implements ChatCommand {
     const [rawP1, rawP2] = args ?? [];
     const arg1 = rawP1?.trim();
     const arg2 = rawP2?.trim();
+
+    if ((arg1 && !isValidPlayerName(arg1)) || (arg2 && !isValidPlayerName(arg2))) {
+      await ctx.reply(INVALID_NAME_MESSAGE);
+      return;
+    }
 
     // If only one arg is provided, treat it as the opponent and fill playerOne from channel owner.
     let playerOne: string | null;
